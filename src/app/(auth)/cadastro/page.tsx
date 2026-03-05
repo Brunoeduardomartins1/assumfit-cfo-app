@@ -22,7 +22,7 @@ export default function CadastroPage() {
     setError(null)
 
     const supabase = createClient()
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -34,6 +34,23 @@ export default function CadastroPage() {
       setError(error.message)
       setLoading(false)
       return
+    }
+
+    // Auto-create organization + profile
+    if (data.user) {
+      try {
+        await fetch("/api/auth/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: data.user.id,
+            fullName: name,
+            email,
+          }),
+        })
+      } catch {
+        // Non-blocking
+      }
     }
 
     router.push("/painel")

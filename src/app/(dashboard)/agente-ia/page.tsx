@@ -8,7 +8,7 @@ import { PhaseBadge } from "@/components/shared/phase-badge"
 import { ChatMessage } from "@/components/ai/chat-message"
 import { InsightsPanel } from "@/components/ai/insights-panel"
 import { getCurrentPhase } from "@/config/phases"
-import { Send, Bot, Sparkles } from "lucide-react"
+import { Send, Bot, Sparkles, ClipboardCheck, TrendingUp } from "lucide-react"
 import { toast } from "sonner"
 
 interface Message {
@@ -16,13 +16,40 @@ interface Message {
   content: string
 }
 
-const SUGGESTED_PROMPTS = [
-  "Qual o burn rate atual e como reduzir?",
-  "Quando atingimos o break-even?",
-  "Compare custos fixos vs variaveis",
-  "Projete a receita para os proximos 6 meses",
-  "Quais os maiores riscos financeiros?",
-  "Analise a margem EBITDA ao longo do tempo",
+const PROMPT_CATEGORIES = [
+  {
+    label: "BPO Financeiro",
+    icon: ClipboardCheck,
+    color: "text-amber-400",
+    prompts: [
+      "Classifique e concilie as transacoes de fevereiro",
+      "Execute o checklist de fechamento do mes passado",
+      "Qual o aging das contas a pagar?",
+      "Projete o fluxo de caixa dos proximos 3 meses",
+    ],
+  },
+  {
+    label: "CFO Estrategico",
+    icon: TrendingUp,
+    color: "text-emerald-400",
+    prompts: [
+      "Qual nosso runway atual e cenario de captacao?",
+      "Gere o relatorio executivo para o board",
+      "Simule cenario pessimista com -20% de receita",
+      "Compare orcamento vs realizado deste mes",
+    ],
+  },
+  {
+    label: "Visao Geral",
+    icon: Sparkles,
+    color: "text-chart-1",
+    prompts: [
+      "Como esta a saude financeira da empresa?",
+      "Quais os maiores riscos financeiros agora?",
+      "Analise a margem EBITDA ao longo do tempo",
+      "Qual nossa prontidao para fundraising?",
+    ],
+  },
 ]
 
 export default function AgenteIaPage() {
@@ -157,16 +184,27 @@ export default function AgenteIaPage() {
                   Pergunte sobre metricas financeiras, analise de custos, projecoes de receita,
                   cenarios ou qualquer duvida sobre a saude financeira da ASSUMFIT.
                 </p>
-                <div className="grid grid-cols-2 gap-2 max-w-lg">
-                  {SUGGESTED_PROMPTS.map((prompt) => (
-                    <button
-                      key={prompt}
-                      onClick={() => sendMessage(prompt)}
-                      className="text-xs text-left px-3 py-2 rounded-md border border-border bg-card hover:bg-muted transition-colors text-muted-foreground"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
+                <div className="grid grid-cols-3 gap-4 max-w-2xl w-full">
+                  {PROMPT_CATEGORIES.map((cat) => {
+                    const Icon = cat.icon
+                    return (
+                      <div key={cat.label} className="space-y-2">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <Icon className={`h-3.5 w-3.5 ${cat.color}`} />
+                          <span className="text-[11px] font-medium text-muted-foreground">{cat.label}</span>
+                        </div>
+                        {cat.prompts.map((prompt) => (
+                          <button
+                            key={prompt}
+                            onClick={() => sendMessage(prompt)}
+                            className="w-full text-xs text-left px-3 py-2 rounded-md border border-border bg-card hover:bg-muted transition-colors text-muted-foreground"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             ) : (

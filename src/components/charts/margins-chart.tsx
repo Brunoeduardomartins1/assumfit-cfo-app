@@ -10,47 +10,29 @@ import {
   Tooltip,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { MONTHLY_DATA } from "@/config/seed-data"
+import { MONTHLY_DATA, type MonthlyData } from "@/config/seed-data"
 
 const C = { green: "#4ade80", blue: "#60a5fa", purple: "#a78bfa" }
 
-// Last 3 months with data for radar comparison
-const dreMonths = MONTHLY_DATA.filter((d) => d.receita !== null && (d.receita ?? 0) > 0)
-const latest = dreMonths[dreMonths.length - 1]
-const prev = dreMonths.length > 1 ? dreMonths[dreMonths.length - 2] : null
+interface MarginsChartProps { monthlyData?: MonthlyData[] }
 
-const radarData = [
-  {
-    metric: "M. Bruta",
-    atual: Math.max(0, (latest?.margemBruta ?? 0) * 100),
-    anterior: Math.max(0, (prev?.margemBruta ?? 0) * 100),
-    fullMark: 100,
-  },
-  {
-    metric: "M. EBITDA",
-    atual: Math.max(0, (latest?.margemEbitda ?? 0) * 100),
-    anterior: Math.max(0, (prev?.margemEbitda ?? 0) * 100),
-    fullMark: 100,
-  },
-  {
-    metric: "Eficiencia",
-    atual: latest && latest.receita ? Math.min(100, ((latest.receita - (latest.custosFixos ?? 0)) / latest.receita) * 100) : 0,
-    anterior: prev && prev.receita ? Math.min(100, ((prev.receita - (prev.custosFixos ?? 0)) / prev.receita) * 100) : 0,
-    fullMark: 100,
-  },
-  {
-    metric: "Crescimento",
-    atual: prev && prev.receita && latest?.receita ? Math.min(100, ((latest.receita - prev.receita) / Math.max(prev.receita, 1)) * 100) : 0,
-    anterior: 0,
-    fullMark: 100,
-  },
-  {
-    metric: "Cobertura",
-    atual: latest && latest.receita ? Math.min(100, (latest.receita / Math.max((latest.custosFixos ?? 0) + (latest.despesasVariaveis ?? 0), 1)) * 100) : 0,
-    anterior: prev && prev.receita ? Math.min(100, (prev.receita / Math.max((prev.custosFixos ?? 0) + (prev.despesasVariaveis ?? 0), 1)) * 100) : 0,
-    fullMark: 100,
-  },
-]
+function buildRadarData(source: MonthlyData[]) {
+  const dreMonths = source.filter((d) => d.receita !== null && (d.receita ?? 0) > 0)
+  const latest = dreMonths[dreMonths.length - 1]
+  const prev = dreMonths.length > 1 ? dreMonths[dreMonths.length - 2] : null
+
+  return {
+    latest,
+    prev,
+    radarData: [
+      { metric: "M. Bruta", atual: Math.max(0, (latest?.margemBruta ?? 0) * 100), anterior: Math.max(0, (prev?.margemBruta ?? 0) * 100), fullMark: 100 },
+      { metric: "M. EBITDA", atual: Math.max(0, (latest?.margemEbitda ?? 0) * 100), anterior: Math.max(0, (prev?.margemEbitda ?? 0) * 100), fullMark: 100 },
+      { metric: "Eficiencia", atual: latest && latest.receita ? Math.min(100, ((latest.receita - (latest.custosFixos ?? 0)) / latest.receita) * 100) : 0, anterior: prev && prev.receita ? Math.min(100, ((prev.receita - (prev.custosFixos ?? 0)) / prev.receita) * 100) : 0, fullMark: 100 },
+      { metric: "Crescimento", atual: prev && prev.receita && latest?.receita ? Math.min(100, ((latest.receita - prev.receita) / Math.max(prev.receita, 1)) * 100) : 0, anterior: 0, fullMark: 100 },
+      { metric: "Cobertura", atual: latest && latest.receita ? Math.min(100, (latest.receita / Math.max((latest.custosFixos ?? 0) + (latest.despesasVariaveis ?? 0), 1)) * 100) : 0, anterior: prev && prev.receita ? Math.min(100, (prev.receita / Math.max((prev.custosFixos ?? 0) + (prev.despesasVariaveis ?? 0), 1)) * 100) : 0, fullMark: 100 },
+    ],
+  }
+}
 
 function ChartTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
@@ -69,7 +51,8 @@ function ChartTooltip({ active, payload }: any) {
   )
 }
 
-export function MarginsChart() {
+export function MarginsChart({ monthlyData }: MarginsChartProps) {
+  const { latest, prev, radarData } = buildRadarData(monthlyData ?? MONTHLY_DATA)
   return (
     <Card>
       <CardHeader className="pb-2">

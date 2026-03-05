@@ -2,8 +2,8 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 export async function updateSession(request: NextRequest) {
-  // Skip auth when SKIP_AUTH is set (dev/preview) or in development mode
-  if (process.env.NODE_ENV === "development" || process.env.SKIP_AUTH === "true") {
+  // Skip auth only when SKIP_AUTH is explicitly set (for local preview without Supabase)
+  if (process.env.SKIP_AUTH === "true") {
     return NextResponse.next({ request })
   }
 

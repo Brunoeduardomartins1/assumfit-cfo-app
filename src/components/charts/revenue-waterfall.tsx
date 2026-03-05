@@ -11,20 +11,12 @@ import {
   Legend,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { MONTHLY_DATA } from "@/config/seed-data"
+import { MONTHLY_DATA, type MonthlyData } from "@/config/seed-data"
 import { formatBRLCompact } from "@/lib/formatters/currency"
 
 const C = { green: "#4ade80", red: "#f87171", orange: "#fb923c", amber: "#fbbf24", grid: "rgba(255,255,255,0.06)", axis: "#64748b", border: "rgba(255,255,255,0.08)" }
 
-const data = MONTHLY_DATA
-  .filter((d) => d.receita !== null)
-  .map((d) => ({
-    month: d.month,
-    receita: d.receita ?? 0,
-    custosFixos: d.custosFixos ?? 0,
-    despVariaveis: d.despesasVariaveis ?? 0,
-    cogs: d.cogs ?? 0,
-  }))
+interface RevenueWaterfallChartProps { monthlyData?: MonthlyData[] }
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
@@ -57,7 +49,16 @@ function CustomLegend({ payload }: any) {
   )
 }
 
-export function RevenueWaterfallChart() {
+export function RevenueWaterfallChart({ monthlyData }: RevenueWaterfallChartProps) {
+  const data = (monthlyData ?? MONTHLY_DATA)
+    .filter((d) => d.receita !== null)
+    .map((d) => ({
+      month: d.month,
+      receita: d.receita ?? 0,
+      custosFixos: d.custosFixos ?? 0,
+      despVariaveis: d.despesasVariaveis ?? 0,
+      cogs: d.cogs ?? 0,
+    }))
   return (
     <Card>
       <CardHeader className="pb-2">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,6 +10,8 @@ import { getCurrentPhase, getPhaseConfig } from "@/config/phases"
 import { MONTHLY_DATA, CURRENT_SNAPSHOT, TOP_EXPENSES, REVENUE_SOURCES } from "@/config/seed-data"
 import { formatBRL, formatBRLCompact } from "@/lib/formatters/currency"
 import { useAuditStore } from "@/stores/audit-store"
+import { useOrg } from "@/hooks/use-org"
+import { useFinancialData } from "@/hooks/use-financial-data"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 import {
@@ -81,13 +83,19 @@ function KPIRow({
 export default function RelatoriosPage() {
   const currentPhase = getCurrentPhase()
   const phaseConfig = getPhaseConfig(currentPhase)
+  const { orgId } = useOrg()
+  const { monthlyData, snapshot, topExpenses, revenueSources } = useFinancialData(orgId)
   const auditEntries = useAuditStore((s) => s.entries)
+  const loadAuditFromDb = useAuditStore((s) => s.loadFromDb)
   const reportRef = useRef<HTMLDivElement>(null)
 
-  const snap = CURRENT_SNAPSHOT
-  const dreMonths = MONTHLY_DATA.filter((d) => d.receita !== null)
-  const latestDRE = dreMonths[dreMonths.length - 1]
-  const prevDRE = dreMonths.length > 1 ? dreMonths[dreMonths.length - 2] : null
+  // Load audit trail from DB
+  useEffect(() => {
+    if (orgId) loadAuditFromDb(orgId)
+  }, [orgId, loadAuditFromDb])
+
+  const snap = snapshot
+  const dreMonths = monthlyData.filter((d) => d.receita !== null)
 
   // Summary metrics
   const totalReceita2026 = dreMonths.reduce((sum, d) => sum + (d.receita ?? 0), 0)
@@ -263,8 +271,8 @@ export default function RelatoriosPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {TOP_EXPENSES.map((exp, i) => {
-                const total = TOP_EXPENSES.reduce((s, e) => s + e.value, 0)
+              {topExpenses.map((exp, i) => {
+                const total = topExpenses.reduce((s, e) => s + e.value, 0)
                 const pct = (exp.value / total) * 100
                 return (
                   <div key={exp.name} className="space-y-1">
@@ -294,8 +302,8 @@ export default function RelatoriosPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {REVENUE_SOURCES.map((src) => {
-                const total = REVENUE_SOURCES.reduce((s, r) => s + r.value, 0)
+              {revenueSources.map((src) => {
+                const total = revenueSources.reduce((s, r) => s + r.value, 0)
                 const pct = (src.value / total) * 100
                 return (
                   <div key={src.name} className="space-y-1">

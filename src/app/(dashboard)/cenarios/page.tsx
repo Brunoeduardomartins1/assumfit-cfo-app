@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -20,7 +20,10 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts"
-import { GitBranch, TrendingUp, TrendingDown, Minus } from "lucide-react"
+import { GitBranch, TrendingUp, TrendingDown, Minus, Plus } from "lucide-react"
+import { useOrg } from "@/hooks/use-org"
+import { getScenarios, createScenario, deleteScenario as deleteScenarioDb } from "@/lib/supabase/queries"
+import { toast } from "sonner"
 
 const METRIC_OPTIONS = [
   { key: "ebitda" as const, label: "EBITDA" },
@@ -63,9 +66,39 @@ function CompareTooltip({ active, payload, label }: any) {
 
 export default function CenariosPage() {
   const currentPhase = getCurrentPhase()
-  const [scenarios] = useState<Scenario[]>(SCENARIO_TEMPLATES)
+  const { orgId, userId } = useOrg()
+  const [scenarios, setScenarios] = useState<Scenario[]>(SCENARIO_TEMPLATES)
   const [selectedIds, setSelectedIds] = useState<string[]>(["base", "optimistic", "pessimistic"])
   const [metric, setMetric] = useState<"ebitda" | "receita" | "saldoFinal" | "burnRate">("ebitda")
+
+  // Load scenarios from DB, merge with templates
+  useEffect(() => {
+    if (!orgId) return
+    ;(async () => {
+      try {
+        const dbScenarios = await getScenarios(orgId)
+        if (dbScenarios.length > 0) {
+          // Convert DB scenarios to local format and merge with templates
+          const dbMapped: Scenario[] = dbScenarios.map((s) => ({
+            id: s.id,
+            name: s.name,
+            description: s.description ?? "",
+            type: s.is_base ? "base" as const : "custom" as const,
+            createdAt: s.created_at,
+            modifiers: s.growth_rate
+              ? [{ id: `m-${s.id}`, target: "receita" as const, operation: "multiply" as const, value: 1 + s.growth_rate / 100, label: `Receita ${s.growth_rate > 0 ? "+" : ""}${s.growth_rate}%` }]
+              : [],
+          }))
+          // Merge: templates first, then DB scenarios that aren't duplicates
+          const templateIds = new Set(SCENARIO_TEMPLATES.map((t) => t.id))
+          const merged = [...SCENARIO_TEMPLATES, ...dbMapped.filter((s) => !templateIds.has(s.id))]
+          setScenarios(merged)
+        }
+      } catch {
+        // Keep templates
+      }
+    })()
+  }, [orgId])
 
   const selectedScenarios = scenarios.filter((s) => selectedIds.includes(s.id))
 
@@ -73,6 +106,42 @@ export default function CenariosPage() {
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     )
+  }
+
+  const handleCreateScenario = async () => {
+    if (!orgId) {
+      toast.error("Nao autenticado")
+      return
+    }
+    const name = prompt("Nome do cenario:")
+    if (!name) return
+    const growthStr = prompt("Taxa de crescimento de receita (%):", "10")
+    const growthRate = parseFloat(growthStr ?? "0")
+
+    try {
+      const dbScenario = await createScenario(orgId, {
+        name,
+        description: `Cenario customizado: receita ${growthRate > 0 ? "+" : ""}${growthRate}%`,
+        is_base: false,
+        growth_rate: growthRate,
+        created_by: userId,
+      })
+      const newScenario: Scenario = {
+        id: dbScenario.id,
+        name: dbScenario.name,
+        description: dbScenario.description ?? "",
+        type: "custom",
+        createdAt: dbScenario.created_at,
+        modifiers: growthRate
+          ? [{ id: `m-${dbScenario.id}`, target: "receita", operation: "multiply", value: 1 + growthRate / 100, label: `Receita ${growthRate > 0 ? "+" : ""}${growthRate}%` }]
+          : [],
+      }
+      setScenarios((prev) => [...prev, newScenario])
+      setSelectedIds((prev) => [...prev, newScenario.id])
+      toast.success(`Cenario "${name}" criado!`)
+    } catch (err) {
+      toast.error("Erro ao criar cenario: " + (err instanceof Error ? err.message : "desconhecido"))
+    }
   }
 
   // Build chart data
@@ -113,7 +182,13 @@ export default function CenariosPage() {
             Planejamento what-if — Compare projecoes lado a lado
           </p>
         </div>
-        <PhaseBadge phase={currentPhase} />
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={handleCreateScenario}>
+            <Plus className="h-4 w-4 mr-1" />
+            Novo Cenario
+          </Button>
+          <PhaseBadge phase={currentPhase} />
+        </div>
       </div>
 
       {/* Scenario cards */}

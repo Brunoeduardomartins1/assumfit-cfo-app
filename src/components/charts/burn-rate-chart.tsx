@@ -12,17 +12,12 @@ import {
   Cell,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { MONTHLY_DATA } from "@/config/seed-data"
+import { MONTHLY_DATA, type MonthlyData } from "@/config/seed-data"
 import { formatBRLCompact } from "@/lib/formatters/currency"
 
 const C = { red: "#f87171", green: "#4ade80", grid: "rgba(255,255,255,0.06)", axis: "#64748b", border: "rgba(255,255,255,0.08)" }
 
-const data = MONTHLY_DATA
-  .filter((d) => d.burnRate !== null)
-  .map((d) => ({
-    month: d.month,
-    burnRate: d.burnRate ?? 0,
-  }))
+interface BurnRateChartProps { monthlyData?: MonthlyData[] }
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
@@ -38,7 +33,10 @@ function ChartTooltip({ active, payload, label }: any) {
   )
 }
 
-export function BurnRateChart() {
+export function BurnRateChart({ monthlyData }: BurnRateChartProps) {
+  const data = (monthlyData ?? MONTHLY_DATA)
+    .filter((d) => d.burnRate !== null)
+    .map((d) => ({ month: d.month, burnRate: d.burnRate ?? 0 }))
   return (
     <Card>
       <CardHeader className="pb-2">

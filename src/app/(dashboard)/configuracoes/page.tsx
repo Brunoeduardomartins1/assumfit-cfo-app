@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,6 +20,9 @@ import {
   X,
   ExternalLink,
 } from "lucide-react"
+import { useOrg } from "@/hooks/use-org"
+import { getOrganization, updateOrganization } from "@/lib/supabase/queries"
+import { toast } from "sonner"
 
 interface IntegrationStatus {
   name: string
@@ -54,9 +57,41 @@ const INTEGRATIONS: IntegrationStatus[] = [
 ]
 
 export default function ConfiguracoesPage() {
+  const { orgId } = useOrg()
   const [orgName, setOrgName] = useState("ASSUMFIT")
   const [brandName, setBrandName] = useState("MUVX")
   const [email, setEmail] = useState("cfo@assumfit.com.br")
+  const [saving, setSaving] = useState(false)
+
+  // Load org from DB
+  useEffect(() => {
+    if (!orgId) return
+    ;(async () => {
+      try {
+        const org = await getOrganization(orgId)
+        if (org.name) setOrgName(org.name)
+        if (org.slug) setBrandName(org.slug)
+      } catch {
+        // Keep defaults
+      }
+    })()
+  }, [orgId])
+
+  const handleSave = async () => {
+    if (!orgId) {
+      toast.error("Nao autenticado")
+      return
+    }
+    setSaving(true)
+    try {
+      await updateOrganization(orgId, { name: orgName, slug: brandName.toLowerCase() })
+      toast.success("Configuracoes salvas com sucesso!")
+    } catch (err) {
+      toast.error("Erro ao salvar: " + (err instanceof Error ? err.message : "desconhecido"))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -99,8 +134,8 @@ export default function ConfiguracoesPage() {
               <label className="text-sm font-medium">Fuso Horario</label>
               <Input value="America/Sao_Paulo (GMT-3)" disabled />
             </div>
-            <Button size="sm" className="mt-2">
-              Salvar Alteracoes
+            <Button size="sm" className="mt-2" onClick={handleSave} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar Alteracoes"}
             </Button>
           </CardContent>
         </Card>
@@ -173,8 +208,8 @@ export default function ConfiguracoesPage() {
               { key: "NEXT_PUBLIC_SUPABASE_ANON_KEY", configured: true },
               { key: "SUPABASE_SERVICE_ROLE_KEY", configured: true },
               { key: "ANTHROPIC_API_KEY", configured: true },
-              { key: "PLUGGY_CLIENT_ID", configured: false },
-              { key: "PLUGGY_CLIENT_SECRET", configured: false },
+              { key: "PLUGGY_CLIENT_ID", configured: true },
+              { key: "PLUGGY_CLIENT_SECRET", configured: true },
             ].map((env) => (
               <div key={env.key} className="flex items-center justify-between">
                 <span className="text-xs font-mono text-muted-foreground">{env.key}</span>

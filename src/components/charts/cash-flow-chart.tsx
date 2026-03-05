@@ -12,17 +12,14 @@ import {
   ReferenceLine,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { MONTHLY_DATA } from "@/config/seed-data"
+import { MONTHLY_DATA, type MonthlyData } from "@/config/seed-data"
 import { formatBRLCompact } from "@/lib/formatters/currency"
 
 const C = { blue: "#60a5fa", green: "#4ade80", red: "#f87171", grid: "rgba(255,255,255,0.06)", axis: "#64748b", border: "rgba(255,255,255,0.08)" }
 
-const data = MONTHLY_DATA.map((d) => ({
-  month: d.month,
-  entradas: d.entradas,
-  saidas: d.saidas,
-  saldo: d.saldoFinal,
-}))
+interface CashFlowChartProps {
+  monthlyData?: MonthlyData[]
+}
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
@@ -42,7 +39,13 @@ function ChartTooltip({ active, payload, label }: any) {
   )
 }
 
-export function CashFlowChart() {
+export function CashFlowChart({ monthlyData }: CashFlowChartProps) {
+  const data = (monthlyData ?? MONTHLY_DATA).map((d) => ({
+    month: d.month,
+    entradas: d.entradas,
+    saidas: d.saidas,
+    saldo: d.saldoFinal,
+  }))
   return (
     <Card>
       <CardHeader className="pb-2">

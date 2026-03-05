@@ -12,21 +12,12 @@ import {
   Scatter,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { MONTHLY_DATA } from "@/config/seed-data"
+import { MONTHLY_DATA, type MonthlyData } from "@/config/seed-data"
 import { formatBRLCompact } from "@/lib/formatters/currency"
 
 const C = { purple: "#a78bfa", cyan: "#22d3ee", grid: "rgba(255,255,255,0.06)", axis: "#64748b", border: "rgba(255,255,255,0.08)" }
 
-const data = MONTHLY_DATA
-  .filter((d) => d.valuation > 0)
-  .map((d) => {
-    const isMilestone = d.valuation > 100_000_000 || d.valuation > 50_000_000 || d.valuation > 10_000_000
-    return {
-      month: d.month,
-      valuation: d.valuation,
-      milestone: isMilestone ? d.valuation : undefined,
-    }
-  })
+interface ValuationChartProps { monthlyData?: MonthlyData[] }
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
@@ -42,7 +33,14 @@ function ChartTooltip({ active, payload, label }: any) {
   )
 }
 
-export function ValuationChart() {
+export function ValuationChart({ monthlyData }: ValuationChartProps) {
+  const data = (monthlyData ?? MONTHLY_DATA)
+    .filter((d) => d.valuation > 0)
+    .map((d) => ({
+      month: d.month,
+      valuation: d.valuation,
+      milestone: (d.valuation > 100_000_000 || d.valuation > 50_000_000 || d.valuation > 10_000_000) ? d.valuation : undefined,
+    }))
   return (
     <Card>
       <CardHeader className="pb-2">

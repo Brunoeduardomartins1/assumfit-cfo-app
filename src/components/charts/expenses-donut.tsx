@@ -13,29 +13,28 @@ import { formatBRL } from "@/lib/formatters/currency"
 
 const COLORS = ["#f87171", "#fb923c", "#fbbf24", "#a78bfa", "#60a5fa", "#4ade80", "#22d3ee"]
 
-const data = TOP_EXPENSES.map((e, i) => ({
-  name: e.name,
-  value: e.value,
-  color: COLORS[i % COLORS.length],
-}))
-
-const total = data.reduce((s, d) => s + d.value, 0)
+interface ExpensesDonutProps { expenses?: Array<{ name: string; value: number }> }
 
 function ChartTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null
   const d = payload[0]
-  const pct = ((d.value / total) * 100).toFixed(1)
   return (
     <div className="bg-zinc-900/95 backdrop-blur border border-zinc-700/50 rounded-lg px-3 py-2.5 shadow-2xl">
       <p className="text-[11px] font-medium text-zinc-200 mb-1">{d.name}</p>
       <p className="text-[11px] font-mono tabular-nums font-medium text-zinc-100">
-        {formatBRL(d.value)} ({pct}%)
+        {formatBRL(d.value)}
       </p>
     </div>
   )
 }
 
-export function ExpensesDonut() {
+export function ExpensesDonut({ expenses }: ExpensesDonutProps) {
+  const data = (expenses ?? TOP_EXPENSES).map((e, i) => ({
+    name: e.name,
+    value: e.value,
+    color: COLORS[i % COLORS.length],
+  }))
+  const total = data.reduce((s, d) => s + d.value, 0)
   return (
     <Card>
       <CardHeader className="pb-2">

@@ -9,6 +9,7 @@ import type {
   ParsedDRE,
   ParsedPremissas,
   ParsedVendas,
+  FluxoSection,
 } from "@/types/spreadsheet"
 import { updateCellAndRecalculate } from "@/lib/formulas/engine"
 import { getDescendantIds } from "@/lib/formulas/hierarchy"
@@ -82,6 +83,10 @@ interface SpreadsheetState {
     vendasInfluencia: ParsedVendas
     vendasCore: ParsedVendas
   }) => void
+
+  // DB persistence
+  loadFromDb: (orgId: string) => Promise<boolean>
+  persistDirtyToDb: (orgId: string) => Promise<void>
 }
 
 export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
@@ -221,7 +226,120 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
       undoStack: [],
       redoStack: [],
     }),
+
+  loadFromDb: async (orgId: string) => {
+    set({ isLoading: true })
+    try {
+      const { getChartOfAccounts, getTransactions } = await import("@/lib/supabase/queries")
+      const [accounts, transactions] = await Promise.all([
+        getChartOfAccounts(orgId),
+        getTransactions(orgId),
+      ])
+
+      if (accounts.length === 0) {
+        set({ isLoading: false })
+        return false
+      }
+
+      // Reconstruct spreadsheet rows from DB
+      const monthKeys = new Set<string>()
+      for (const tx of transactions) {
+        monthKeys.add(tx.month.slice(0, 7))
+      }
+      const sortedMonths = Array.from(monthKeys).sort()
+
+      // Build month metadata
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+      const months: SpreadsheetMonth[] = sortedMonths.map((key, i) => {
+        const [y, m] = key.split("-")
+        const d = new Date(parseInt(y), parseInt(m) - 1, 1)
+        const serial = Math.floor((d.getTime() - new Date(1900, 0, 1).getTime()) / 86400000) + 2
+        return {
+          key,
+          label: `${monthNames[parseInt(m) - 1]}-${y.slice(2)}`,
+          colIndex: i + 1,
+          serialDate: serial,
+        }
+      })
+
+      // Build rows from chart_of_accounts + transactions
+      const rows: SpreadsheetRow[] = accounts.map((acc) => {
+        const values: Record<string, number> = {}
+        for (const tx of transactions) {
+          if (tx.account_code === acc.code) {
+            const mk = tx.month.slice(0, 7)
+            values[mk] = Number(tx.amount)
+          }
+        }
+        return {
+          id: acc.code,
+          category: acc.name,
+          level: acc.level,
+          isGroup: acc.is_summary,
+          isEstimado: false,
+          isRealizado: false,
+          parentId: acc.parent_code,
+          rowIndex: acc.display_order,
+          section: mapTypeToSection(acc.type),
+          values,
+        }
+      })
+
+      set({
+        fluxoRows: rows,
+        fluxoMonths: months,
+        fluxoPhases: [],
+        isLoaded: true,
+        isLoading: false,
+        dirtyCells: new Map(),
+        undoStack: [],
+        redoStack: [],
+      })
+      return true
+    } catch (err) {
+      console.error("Failed to load from DB:", err)
+      set({ isLoading: false })
+      return false
+    }
+  },
+
+  persistDirtyToDb: async (orgId: string) => {
+    const state = get()
+    if (state.dirtyCells.size === 0) return
+
+    try {
+      const { upsertTransactions } = await import("@/lib/supabase/queries")
+      const rows = Array.from(state.dirtyCells.values()).map((cell) => {
+        const row = state.fluxoRows.find((r) => r.id === cell.rowId)
+        return {
+          account_code: cell.rowId,
+          month: `${cell.monthKey}-01`,
+          entry_type: (row?.isRealizado ? "realizado" : "estimado") as "estimado" | "realizado",
+          amount: cell.value ?? 0,
+          source: "manual" as const,
+          notes: null,
+          created_by: null,
+        }
+      })
+
+      await upsertTransactions(orgId, rows)
+      set({ dirtyCells: new Map() })
+    } catch (err) {
+      console.error("Failed to persist dirty cells:", err)
+    }
+  },
 }))
+
+function mapTypeToSection(type: string): FluxoSection {
+  switch (type) {
+    case "revenue": return "entradas"
+    case "expense": return "saidas"
+    case "capital": return "capital"
+    case "financial": return "saidas_financeiras"
+    case "adjustment": return "consolidacao"
+    default: return "saidas"
+  }
+}
 
 /**
  * Get visible rows (respecting collapsed groups)

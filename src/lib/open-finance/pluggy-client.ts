@@ -15,9 +15,15 @@ function getClient(): PluggyClient {
 }
 
 export const pluggyProvider: OpenFinanceProvider = {
-  async createConnectToken(): Promise<string> {
+  async createConnectToken(itemId?: string, options?: {
+    webhookUrl?: string
+    clientUserId?: string
+  }): Promise<string> {
     const client = getClient()
-    const token = await client.createConnectToken()
+    const token = await client.createConnectToken(itemId, {
+      webhookUrl: options?.webhookUrl,
+      clientUserId: options?.clientUserId,
+    })
     return token.accessToken
   },
 

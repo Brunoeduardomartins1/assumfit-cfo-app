@@ -21,7 +21,7 @@ export default function LoginPage() {
     setError(null)
 
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     })
@@ -30,6 +30,23 @@ export default function LoginPage() {
       setError("Email ou senha incorretos. Tente novamente.")
       setLoading(false)
       return
+    }
+
+    // Ensure org+profile exist (handles legacy users)
+    if (data.user) {
+      try {
+        await fetch("/api/auth/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: data.user.id,
+            fullName: data.user.user_metadata?.full_name ?? "",
+            email: data.user.email,
+          }),
+        })
+      } catch {
+        // Non-blocking — profile setup is best-effort
+      }
     }
 
     router.push("/painel")

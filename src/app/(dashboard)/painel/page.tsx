@@ -7,7 +7,8 @@ import { PhaseTimeline } from "@/components/charts/phase-timeline"
 import { getCurrentPhase } from "@/config/phases"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatBRL } from "@/lib/formatters/currency"
-import { CURRENT_SNAPSHOT } from "@/config/seed-data"
+import { useOrg } from "@/hooks/use-org"
+import { useFinancialData } from "@/hooks/use-financial-data"
 
 function ChartSkeleton() {
   return <div className="h-[300px] bg-muted/20 rounded-lg animate-pulse" />
@@ -23,7 +24,22 @@ const ExpensesDonut = dynamic(() => import("@/components/charts/expenses-donut")
 
 export default function PainelPage() {
   const currentPhase = getCurrentPhase()
-  const d = CURRENT_SNAPSHOT
+  const { orgId } = useOrg()
+  const { monthlyData, snapshot: d, topExpenses, loading } = useFinancialData(orgId)
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-64 bg-muted/20 rounded animate-pulse" />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {[1,2,3,4].map(i => <div key={i} className="h-28 bg-muted/20 rounded-lg animate-pulse" />)}
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <ChartSkeleton /><ChartSkeleton />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -55,26 +71,26 @@ export default function PainelPage() {
 
       {/* Row 1: Combo chart + Conditional bars */}
       <div className="grid gap-4 md:grid-cols-2">
-        <CashFlowChart />
-        <BurnRateChart />
+        <CashFlowChart monthlyData={monthlyData} />
+        <BurnRateChart monthlyData={monthlyData} />
       </div>
 
       {/* Row 2: Stacked DRE + Radar health */}
       <div className="grid gap-4 md:grid-cols-2">
-        <RevenueWaterfallChart />
-        <MarginsChart />
+        <RevenueWaterfallChart monthlyData={monthlyData} />
+        <MarginsChart monthlyData={monthlyData} />
       </div>
 
       {/* Row 3: EBITDA bars + Expenses donut */}
       <div className="grid gap-4 md:grid-cols-2">
-        <EbitdaChart />
-        <ExpensesDonut />
+        <EbitdaChart monthlyData={monthlyData} />
+        <ExpensesDonut expenses={topExpenses} />
       </div>
 
       {/* Row 4: Valuation full-width + DRE summary */}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="md:col-span-2">
-          <ValuationChart />
+          <ValuationChart monthlyData={monthlyData} />
         </div>
         <Card>
           <CardHeader>

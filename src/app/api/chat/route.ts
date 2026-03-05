@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server"
 import { streamChat } from "@/lib/ai"
+import { getAuthContext } from "@/lib/supabase/auth-helpers"
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,11 +13,20 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Get orgId for live data queries (non-blocking — works without auth too)
+    let orgId: string | null = null
+    try {
+      const auth = await getAuthContext()
+      orgId = auth?.orgId ?? null
+    } catch {
+      // Continue without org context
+    }
+
     const encoder = new TextEncoder()
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          for await (const chunk of streamChat(messages)) {
+          for await (const chunk of streamChat(messages, orgId)) {
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunk })}\n\n`))
           }
           controller.enqueue(encoder.encode("data: [DONE]\n\n"))

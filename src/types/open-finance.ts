@@ -54,7 +54,10 @@ export interface ReconciliationEntry {
 }
 
 export interface OpenFinanceProvider {
-  createConnectToken(): Promise<string>
+  createConnectToken(itemId?: string, options?: {
+    webhookUrl?: string
+    clientUserId?: string
+  }): Promise<string>
   getAccounts(connectionId: string): Promise<BankAccount[]>
   getTransactions(accountId: string, from: string, to: string): Promise<BankTransaction[]>
   deleteConnection(connectionId: string): Promise<void>

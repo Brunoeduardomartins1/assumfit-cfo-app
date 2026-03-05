@@ -3,7 +3,7 @@
 import { create } from "zustand"
 import type { AuditLogEntry } from "@/types/scenarios"
 
-// Demo audit log entries
+// Demo entries used as fallback when DB is empty
 const DEMO_ENTRIES: AuditLogEntry[] = [
   {
     id: "a1",
@@ -32,49 +32,55 @@ const DEMO_ENTRIES: AuditLogEntry[] = [
     before: "R$ 140.295,88",
     after: "R$ 142.000,00",
   },
-  {
-    id: "a4",
-    timestamp: "2026-01-28T15:05:00Z",
-    user: "Leonardo Silva",
-    action: "connect",
-    entity: "Open Finance",
-    details: "Conectou Conta Simples via Pluggy",
-  },
-  {
-    id: "a5",
-    timestamp: "2026-01-28T15:10:00Z",
-    user: "Leonardo Silva",
-    action: "create",
-    entity: "Cenario",
-    entityId: "optimistic",
-    details: 'Criou cenario "Otimista (+30% receita)"',
-  },
-  {
-    id: "a6",
-    timestamp: "2026-01-28T16:00:00Z",
-    user: "Leonardo Silva",
-    action: "export",
-    entity: "Relatorio Board",
-    details: "Exportou relatorio executivo Jan/26 em PDF",
-  },
 ]
 
 interface AuditState {
   entries: AuditLogEntry[]
+  loaded: boolean
   addEntry: (entry: Omit<AuditLogEntry, "id" | "timestamp">) => void
+  loadFromDb: (orgId: string) => Promise<void>
 }
 
-export const useAuditStore = create<AuditState>((set) => ({
+export const useAuditStore = create<AuditState>((set, get) => ({
   entries: DEMO_ENTRIES,
-  addEntry: (entry) =>
+  loaded: false,
+
+  addEntry: (entry) => {
+    const newEntry: AuditLogEntry = {
+      ...entry,
+      id: `a${Date.now()}`,
+      timestamp: new Date().toISOString(),
+    }
     set((state) => ({
-      entries: [
-        {
-          ...entry,
-          id: `a${state.entries.length + 1}`,
-          timestamp: new Date().toISOString(),
-        },
-        ...state.entries,
-      ],
-    })),
+      entries: [newEntry, ...state.entries],
+    }))
+  },
+
+  loadFromDb: async (orgId: string) => {
+    if (get().loaded) return
+    try {
+      const { getAuditLog } = await import("@/lib/supabase/queries")
+      const dbEntries = await getAuditLog(orgId, 100)
+      if (dbEntries.length > 0) {
+        const mapped: AuditLogEntry[] = dbEntries.map((e) => ({
+          id: e.id,
+          timestamp: e.created_at,
+          user: e.user_id ?? "Sistema",
+          action: e.action as AuditLogEntry["action"],
+          entity: e.entity_type ?? "",
+          entityId: e.entity_id ?? undefined,
+          details: e.new_value
+            ? JSON.stringify(e.new_value).slice(0, 100)
+            : e.action,
+          before: e.old_value ? JSON.stringify(e.old_value).slice(0, 50) : undefined,
+          after: e.new_value ? JSON.stringify(e.new_value).slice(0, 50) : undefined,
+        }))
+        set({ entries: mapped, loaded: true })
+      } else {
+        set({ loaded: true })
+      }
+    } catch {
+      set({ loaded: true })
+    }
+  },
 }))

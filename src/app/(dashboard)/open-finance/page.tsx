@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,11 +9,16 @@ import { ConnectionCard } from "@/components/open-finance/connection-card"
 import { TransactionList } from "@/components/open-finance/transaction-list"
 import { ReconciliationPanel } from "@/components/open-finance/reconciliation-panel"
 import { getCurrentPhase } from "@/config/phases"
-import { Landmark, Plus, ArrowDownUp, Shield } from "lucide-react"
-import type { OpenFinanceConnection, BankTransaction, ReconciliationEntry } from "@/types/open-finance"
+import { Landmark, ArrowDownUp, Shield, Loader2 } from "lucide-react"
+import type { OpenFinanceConnection, BankAccount, BankTransaction, ReconciliationEntry } from "@/types/open-finance"
+import { PluggyConnectWidget } from "@/components/open-finance/pluggy-connect-widget"
 import { toast } from "sonner"
+import { useOrg } from "@/hooks/use-org"
+import { getBankAccounts, getTransactions } from "@/lib/supabase/queries"
+import { reconcile } from "@/lib/open-finance/reconciler"
+import { useSpreadsheetStore } from "@/stores/spreadsheet-store"
 
-// Demo data for when Pluggy is not configured
+// Demo data for when DB is empty / Pluggy not configured
 const DEMO_CONNECTION: OpenFinanceConnection = {
   id: "demo-1",
   provider: "pluggy",
@@ -62,21 +67,193 @@ const DEMO_RECONCILIATION: ReconciliationEntry[] = [
 
 export default function OpenFinancePage() {
   const currentPhase = getCurrentPhase()
-  const [connections] = useState<OpenFinanceConnection[]>([DEMO_CONNECTION])
-  const [transactions] = useState<BankTransaction[]>(DEMO_TRANSACTIONS)
-  const [reconciliation] = useState<ReconciliationEntry[]>(DEMO_RECONCILIATION)
+  const { orgId } = useOrg()
+  const fluxoRows = useSpreadsheetStore((s) => s.fluxoRows)
+  const fluxoMonths = useSpreadsheetStore((s) => s.fluxoMonths)
+  const [connections, setConnections] = useState<OpenFinanceConnection[]>([DEMO_CONNECTION])
+  const [transactions, setTransactions] = useState<BankTransaction[]>(DEMO_TRANSACTIONS)
+  const [reconciliation, setReconciliation] = useState<ReconciliationEntry[]>(DEMO_RECONCILIATION)
+  const [loadedFromDb, setLoadedFromDb] = useState(false)
+  const [syncing, setSyncing] = useState<string | null>(null)
 
-  const handleConnect = async () => {
-    toast.info("Configure PLUGGY_CLIENT_ID e PLUGGY_CLIENT_SECRET no .env.local para conectar ao Open Finance.")
-  }
+  // Load bank accounts + realized transactions from DB
+  useEffect(() => {
+    if (!orgId || loadedFromDb) return
+    ;(async () => {
+      try {
+        const [dbAccounts, dbTxs] = await Promise.all([
+          getBankAccounts(orgId),
+          getTransactions(orgId, { source: "open_finance" }),
+        ])
+        if (dbAccounts.length > 0) {
+          // Build connections from bank_accounts
+          const conn: OpenFinanceConnection = {
+            id: dbAccounts[0].id,
+            provider: dbAccounts[0].provider as "pluggy",
+            institutionName: dbAccounts[0].bank_name,
+            status: dbAccounts[0].connection_status === "connected" ? "connected" : "error",
+            lastSync: dbAccounts[0].last_sync,
+            createdAt: dbAccounts[0].created_at,
+            accounts: dbAccounts.map((a) => ({
+              id: a.id,
+              connectionId: a.id,
+              name: a.bank_name,
+              type: (a.account_type as "checking") ?? "checking",
+              number: a.account_number ?? undefined,
+              balance: a.balance ?? 0,
+              currencyCode: "BRL",
+            })),
+          }
+          setConnections([conn])
+        }
+        if (dbTxs.length > 0) {
+          const bankTxs: BankTransaction[] = dbTxs.map((t) => ({
+            id: t.id,
+            accountId: "acc-db",
+            date: t.month.slice(0, 10),
+            description: t.notes ?? t.account_code,
+            amount: Math.abs(Number(t.amount)),
+            type: Number(t.amount) < 0 ? "debit" as const : "credit" as const,
+            classifiedAccount: t.account_code,
+            categoryConfidence: "high" as const,
+          }))
+          setTransactions(bankTxs)
+          // Build reconciliation from DB data
+          if (fluxoRows.length > 0) {
+            const monthKeys = fluxoMonths.map((m) => m.key)
+            const recon = reconcile(bankTxs, fluxoRows, monthKeys)
+            if (recon.length > 0) setReconciliation(recon)
+          }
+        }
+        setLoadedFromDb(true)
+      } catch {
+        // Fall back to demo data
+        setLoadedFromDb(true)
+      }
+    })()
+  }, [orgId, loadedFromDb, fluxoRows, fluxoMonths])
 
-  const handleSync = (id: string) => {
-    toast.info("Sincronizacao disponivel apos configurar Pluggy.")
-  }
+  const handleConnectSuccess = useCallback(async (itemId: string) => {
+    if (!orgId) return
+    try {
+      // Fetch accounts from the new connection
+      const accountsRes = await fetch(`/api/open-finance/accounts?connectionId=${itemId}`)
+      const accountsData = await accountsRes.json()
+      if (!accountsRes.ok) throw new Error(accountsData.error)
 
-  const handleDelete = (id: string) => {
-    toast.info("Remocao disponivel apos configurar Pluggy.")
-  }
+      const accounts = accountsData.accounts as BankAccount[]
+      if (accounts.length === 0) {
+        toast.warning("Nenhuma conta encontrada nesta conexao.")
+        return
+      }
+
+      // Fetch transactions (last 90 days)
+      const now = new Date()
+      const from = new Date(now.getFullYear(), now.getMonth() - 3, 1)
+        .toISOString().split("T")[0]
+      const to = now.toISOString().split("T")[0]
+
+      let allTransactions: BankTransaction[] = []
+      for (const acc of accounts) {
+        const txRes = await fetch(
+          `/api/open-finance/transactions?accountId=${acc.id}&from=${from}&to=${to}`
+        )
+        const txData = await txRes.json()
+        if (txRes.ok && txData.transactions) {
+          allTransactions = [...allTransactions, ...txData.transactions]
+        }
+      }
+
+      // Sync to database
+      const syncRes = await fetch("/api/open-finance/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transactions: allTransactions,
+          bankAccount: {
+            provider: "pluggy",
+            providerAccountId: accounts[0].id,
+            pluggyItemId: itemId,
+            bankName: accounts[0].name,
+            type: accounts[0].type,
+            number: accounts[0].number,
+            balance: accounts[0].balance,
+          },
+        }),
+      })
+      const syncData = await syncRes.json()
+
+      toast.success(
+        `Sincronizado! ${syncData.synced} transacoes (${syncData.classified} classificadas)`
+      )
+      setLoadedFromDb(false) // triggers re-fetch
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao sincronizar")
+    }
+  }, [orgId])
+
+  const handleSync = useCallback(async (connectionId: string) => {
+    if (!orgId) return
+    setSyncing(connectionId)
+    try {
+      const conn = connections.find((c) => c.id === connectionId)
+      if (!conn || conn.accounts.length === 0) {
+        toast.error("Sem contas para sincronizar")
+        return
+      }
+
+      const now = new Date()
+      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        .toISOString().split("T")[0]
+      const to = now.toISOString().split("T")[0]
+
+      let allTransactions: BankTransaction[] = []
+      for (const acc of conn.accounts) {
+        const txRes = await fetch(
+          `/api/open-finance/transactions?accountId=${acc.id}&from=${from}&to=${to}`
+        )
+        const txData = await txRes.json()
+        if (txRes.ok && txData.transactions) {
+          allTransactions = [...allTransactions, ...txData.transactions]
+        }
+      }
+
+      const syncRes = await fetch("/api/open-finance/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactions: allTransactions }),
+      })
+      const syncData = await syncRes.json()
+
+      toast.success(`${syncData.synced} transacoes sincronizadas`)
+      setLoadedFromDb(false) // refresh
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro na sincronizacao")
+    } finally {
+      setSyncing(null)
+    }
+  }, [orgId, connections])
+
+  const handleDelete = useCallback(async (connectionId: string) => {
+    if (!confirm("Remover esta conexao bancaria? As transacoes ja importadas serao mantidas.")) {
+      return
+    }
+    try {
+      const res = await fetch("/api/open-finance/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ connectionId }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error)
+      }
+      toast.success("Conexao removida")
+      setConnections((prev) => prev.filter((c) => c.id !== connectionId))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erro ao remover")
+    }
+  }, [])
 
   const classified = transactions.filter((t) => t.classifiedAccount).length
   const total = transactions.length
@@ -129,10 +306,12 @@ export default function OpenFinancePage() {
         <Card>
           <CardContent className="pt-4 flex flex-col justify-between h-full">
             <span className="text-sm text-muted-foreground">Nova conexao</span>
-            <Button size="sm" className="mt-2" onClick={handleConnect}>
-              <Plus className="h-4 w-4 mr-1" />
-              Conectar banco
-            </Button>
+            <div className="mt-2">
+              <PluggyConnectWidget
+                onSuccess={handleConnectSuccess}
+                clientUserId={orgId ?? undefined}
+              />
+            </div>
           </CardContent>
         </Card>
       </div>

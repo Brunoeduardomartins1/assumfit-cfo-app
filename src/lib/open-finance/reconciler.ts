@@ -3,11 +3,13 @@ import type { SpreadsheetRow } from "@/types/spreadsheet"
 
 /**
  * Group transactions by month and account label, then compare with spreadsheet estimates.
+ * Works with both spreadsheet rows (fluxoRows) or a simple estimado map.
  */
 export function reconcile(
   transactions: BankTransaction[],
   fluxoRows: SpreadsheetRow[],
-  monthKeys: string[]
+  monthKeys: string[],
+  estimadoMap?: Map<string, Map<string, number>>
 ): ReconciliationEntry[] {
   const entries: ReconciliationEntry[] = []
 
@@ -31,41 +33,62 @@ export function reconcile(
     monthMap.set(label, current + Math.abs(tx.amount))
   }
 
-  // Find Estimado rows in fluxo and match with realized totals
-  for (const row of fluxoRows) {
-    if (!row.isEstimado) continue
+  // If estimadoMap is provided (from DB), use it directly
+  if (estimadoMap && estimadoMap.size > 0) {
+    for (const [monthKey, accountMap] of estimadoMap) {
+      if (!monthKeys.includes(monthKey)) continue
+      for (const [accountLabel, estimado] of accountMap) {
+        const monthMap = txByMonth.get(monthKey)
+        const realizado = monthMap?.get(accountLabel) ?? 0
+        if (estimado === 0 && realizado === 0) continue
+        const variance = realizado - estimado
+        const variancePercent = estimado !== 0
+          ? (variance / Math.abs(estimado)) * 100
+          : realizado !== 0 ? 100 : 0
+        const absPercent = Math.abs(variancePercent)
+        let status: ReconciliationEntry["status"] = "ok"
+        if (absPercent > 15) status = "alert"
+        else if (absPercent > 5) status = "warning"
+        entries.push({ monthKey, accountLabel, estimado, realizado, variance, variancePercent, status })
+      }
+    }
+  } else {
+    // Find Estimado rows in fluxo and match with realized totals
+    for (const row of fluxoRows) {
+      if (!row.isEstimado) continue
 
-    // Find matching Realizado row
-    const baseName = row.category.replace(/ - Estimado$/, "")
+      // Find matching Realizado row
+      const baseName = row.category.replace(/ - Estimado$/, "")
 
-    for (const monthKey of monthKeys) {
-      const estimado = row.values[monthKey] ?? 0
+      for (const monthKey of monthKeys) {
+        const estimado = row.values[monthKey] ?? 0
 
-      // Get realized from bank transactions
-      const monthMap = txByMonth.get(monthKey)
-      const realizado = monthMap?.get(baseName) ?? 0
+        // Get realized from bank transactions
+        const monthMap = txByMonth.get(monthKey)
+        const realizado = monthMap?.get(baseName) ?? 0
 
-      if (estimado === 0 && realizado === 0) continue
+        if (estimado === 0 && realizado === 0) continue
 
-      const variance = realizado - estimado
-      const variancePercent = estimado !== 0
-        ? (variance / Math.abs(estimado)) * 100
-        : realizado !== 0 ? 100 : 0
+        const variance = realizado - estimado
+        const variancePercent = estimado !== 0
+          ? (variance / Math.abs(estimado)) * 100
+          : realizado !== 0 ? 100 : 0
 
-      const absPercent = Math.abs(variancePercent)
-      let status: ReconciliationEntry["status"] = "ok"
-      if (absPercent > 15) status = "alert"
-      else if (absPercent > 5) status = "warning"
+        const absPercent = Math.abs(variancePercent)
+        let status: ReconciliationEntry["status"] = "ok"
+        if (absPercent > 15) status = "alert"
+        else if (absPercent > 5) status = "warning"
 
-      entries.push({
-        monthKey,
-        accountLabel: baseName,
-        estimado,
-        realizado,
-        variance,
-        variancePercent,
-        status,
-      })
+        entries.push({
+          monthKey,
+          accountLabel: baseName,
+          estimado,
+          realizado,
+          variance,
+          variancePercent,
+          status,
+        })
+      }
     }
   }
 

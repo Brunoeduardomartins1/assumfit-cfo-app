@@ -12,17 +12,12 @@ import {
   ReferenceLine,
 } from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { MONTHLY_DATA } from "@/config/seed-data"
+import { MONTHLY_DATA, type MonthlyData } from "@/config/seed-data"
 import { formatBRLCompact } from "@/lib/formatters/currency"
 
 const C = { green: "#4ade80", red: "#f87171", grid: "rgba(255,255,255,0.06)", axis: "#64748b", border: "rgba(255,255,255,0.08)" }
 
-const data = MONTHLY_DATA
-  .filter((d) => d.ebitda !== null)
-  .map((d) => ({
-    month: d.month,
-    ebitda: d.ebitda ?? 0,
-  }))
+interface EbitdaChartProps { monthlyData?: MonthlyData[] }
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
@@ -37,7 +32,10 @@ function ChartTooltip({ active, payload, label }: any) {
   )
 }
 
-export function EbitdaChart() {
+export function EbitdaChart({ monthlyData }: EbitdaChartProps) {
+  const data = (monthlyData ?? MONTHLY_DATA)
+    .filter((d) => d.ebitda !== null)
+    .map((d) => ({ month: d.month, ebitda: d.ebitda ?? 0 }))
   return (
     <Card>
       <CardHeader className="pb-2">
