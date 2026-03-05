@@ -78,13 +78,6 @@ export async function setupUserOrg(
     // Always consolidate ALL other orgs into the canonical one
     await consolidateAllOrgs(admin, targetOrgId)
 
-    // Remove "Conta Simples" bank — user only wants Itau
-    await admin
-      .from("bank_accounts")
-      .delete()
-      .eq("organization_id", targetOrgId)
-      .ilike("bank_name", "%conta simples%")
-
     // User exists but is in a DIFFERENT org — reassign
     if (!existing?.organization_id || existing.organization_id !== targetOrgId) {
       const { error: profErr } = await admin.from("profiles").upsert({
