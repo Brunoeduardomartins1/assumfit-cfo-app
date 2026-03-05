@@ -14,7 +14,6 @@ import type { OpenFinanceConnection, BankAccount, BankTransaction, Reconciliatio
 import { PluggyConnectWidget } from "@/components/open-finance/pluggy-connect-widget"
 import { toast } from "sonner"
 import { useOrg } from "@/hooks/use-org"
-import { getBankAccounts, getTransactions } from "@/lib/supabase/queries"
 import { reconcile } from "@/lib/open-finance/reconciler"
 import { useSpreadsheetStore } from "@/stores/spreadsheet-store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
@@ -30,7 +29,7 @@ export default function OpenFinancePage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState<string | null>(null)
 
-  // Load bank accounts + realized transactions from DB
+  // Load bank accounts + realized transactions from API (uses admin client, bypasses RLS)
   const loadOpenFinanceData = useCallback(async () => {
     if (!orgId) {
       setLoading(false)
@@ -38,10 +37,13 @@ export default function OpenFinancePage() {
     }
     try {
       setLoading(true)
-      const [dbAccounts, dbTxs] = await Promise.all([
-        getBankAccounts(orgId),
-        getTransactions(orgId, { source: "open_finance" }),
-      ])
+      const res = await fetch("/api/open-finance/data")
+      if (!res.ok) {
+        console.error("[open-finance] API error:", res.status, await res.text())
+        return
+      }
+      const { bankAccounts: dbAccounts, transactions: dbTxs } = await res.json()
+
       if (dbAccounts.length > 0) {
         const conn: OpenFinanceConnection = {
           id: dbAccounts[0].id,
@@ -50,7 +52,7 @@ export default function OpenFinancePage() {
           status: dbAccounts[0].connection_status === "connected" ? "connected" : "error",
           lastSync: dbAccounts[0].last_sync,
           createdAt: dbAccounts[0].created_at,
-          accounts: dbAccounts.map((a) => ({
+          accounts: dbAccounts.map((a: Record<string, string | number | null>) => ({
             id: a.id,
             connectionId: a.id,
             name: a.bank_name,
@@ -64,11 +66,12 @@ export default function OpenFinancePage() {
       } else {
         setConnections([])
       }
+
       if (dbTxs.length > 0) {
-        const bankTxs: BankTransaction[] = dbTxs.map((t) => ({
+        const bankTxs: BankTransaction[] = dbTxs.map((t: Record<string, string | number | null>) => ({
           id: t.id,
           accountId: "acc-db",
-          date: t.month.slice(0, 10),
+          date: (t.month as string).slice(0, 10),
           description: t.notes ?? t.account_code,
           amount: Math.abs(Number(t.amount)),
           type: Number(t.amount) < 0 ? "debit" as const : "credit" as const,
