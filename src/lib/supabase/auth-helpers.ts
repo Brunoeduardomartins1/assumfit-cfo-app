@@ -13,7 +13,9 @@ export async function getAuthContext() {
 
   if (!user) return null
 
-  const { data: profile } = await supabase
+  // Use admin client to query profiles (bypasses RLS, avoids recursion)
+  const admin = createAdminClient()
+  const { data: profile } = await admin
     .from("profiles")
     .select("organization_id, full_name, role")
     .eq("id", user.id)
