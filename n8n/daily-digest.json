@@ -1,0 +1,112 @@
+{
+  "name": "Daily Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtHour": 11 }
+          ]
+        }
+      },
+      "id": "cron-daily",
+      "name": "Cron 8h BRT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.VERCEL_APP_URL}}/api/agent/daily-summary",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get-summary",
+      "name": "Get Daily Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [470, 300],
+      "credentials": {
+        "httpHeaderAuth": { "id": "agent-api-key", "name": "Agent API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst score = data.score;\nconst scoreEmoji = score >= 70 ? '🟢' : score >= 40 ? '🟡' : '🔴';\n\nconst fmt = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 });\n\nconst lines = [\n  '📊 *ASSUMFIT CFO — Resumo Diário*',\n  `📅 ${data.date}`,\n  '',\n  `${scoreEmoji} Saúde Financeira: *${score}/100*`,\n  '',\n  `💰 Receita: R$ ${fmt(data.revenue)}`,\n  `🔥 Burn Rate: R$ ${fmt(data.burnRate)}/mês`,\n  `🏦 Saldo: R$ ${fmt(data.cashBalance)}`,\n  `⏳ Runway: *${Number(data.runwayMonths).toFixed(1)} meses*`,\n  '',\n];\n\nif (data.pendingBills > 0) {\n  lines.push(`📋 ${data.pendingBills} conta(s) a pagar nos próximos 7 dias`);\n}\nif (data.overdueCount > 0) {\n  lines.push(`⚠️ ${data.overdueCount} conta(s) em atraso!`);\n}\nif (data.newTransactions > 0) {\n  lines.push(`🔄 ${data.newTransactions} transações classificadas`);\n}\n\nlines.push('', '_Enviado automaticamente pelo ASSUMFIT CFO_');\n\nreturn [{ json: { ...data, whatsappMessage: lines.join('\\n') } }];"
+      },
+      "id": "format-message",
+      "name": "Format WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.z-api.io/instances/{{$env.ZAPI_INSTANCE_ID}}/token/{{$env.ZAPI_TOKEN}}/send-text",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{$env.WHATSAPP_NUMBER}}" },
+            { "name": "message", "value": "={{$json.whatsappMessage}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "whatsapp-digest",
+      "name": "Send WhatsApp Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "from", "value": "ASSUMFIT CFO <cfo@assumfit.com.br>" },
+            { "name": "to", "value": "={{$env.NOTIFICATION_EMAIL}}" },
+            { "name": "subject", "value": "=📊 Resumo Diário — {{$json.date}}" },
+            { "name": "html", "value": "={{$json.emailHtml}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "email-digest",
+      "name": "Send Email Digest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [910, 400],
+      "credentials": {
+        "httpHeaderAuth": { "id": "resend-api-key", "name": "Resend API Key" }
+      }
+    }
+  ],
+  "connections": {
+    "Cron 8h BRT": {
+      "main": [[{ "node": "Get Daily Summary", "type": "main", "index": 0 }]]
+    },
+    "Get Daily Summary": {
+      "main": [[{ "node": "Format WhatsApp Message", "type": "main", "index": 0 }]]
+    },
+    "Format WhatsApp Message": {
+      "main": [
+        [
+          { "node": "Send WhatsApp Digest", "type": "main", "index": 0 },
+          { "node": "Send Email Digest", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "tags": [{ "name": "cron" }, { "name": "production" }]
+}

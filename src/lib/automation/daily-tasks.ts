@@ -140,7 +140,31 @@ export async function runDailyDigest(orgId: string): Promise<DailyDigestResult> 
     },
   })
 
-  // 8. Log automation run
+  // 8. Agent: check upcoming bills and mark overdue
+  try {
+    const { checkUpcomingBills, markOverdueBills, generateRecurringBills } = await import("@/lib/agent/bill-manager")
+    const overdueMarked = await markOverdueBills(orgId)
+    const recurringCreated = await generateRecurringBills(orgId)
+    const bills = await checkUpcomingBills(orgId)
+
+    if (bills.bills.length > 0 || bills.creditCards.length > 0) {
+      const { runDecisionCycle } = await import("@/lib/agent/decision-engine")
+      await runDecisionCycle(orgId, {
+        type: "cron",
+        event: "daily_check",
+        data: {
+          upcomingBills: bills.bills.length,
+          creditCardsDue: bills.creditCards.length,
+          overdueMarked,
+          recurringCreated,
+        },
+      })
+    }
+  } catch (err) {
+    console.error("[DailyDigest] Bill check error:", err)
+  }
+
+  // 9. Log automation run
   await admin.from("automation_runs").insert({
     organization_id: orgId,
     run_type: "daily_digest",

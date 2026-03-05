@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
               `Auto-synced ${txRecords.length} transactions for org ${orgId}`
             )
 
-            // Post-sync: anomaly detection + critical alert emails (non-blocking)
+            // Post-sync: anomaly detection + agent decision engine (non-blocking)
             after(async () => {
               try {
                 const currentMonth = new Date().toISOString().slice(0, 7)
@@ -186,6 +186,21 @@ export async function POST(request: NextRequest) {
                   console.log(
                     `Post-sync: ${anomalies.length} anomalies detected (${criticals.length} critical) for org ${orgId}`
                   )
+                }
+
+                // Trigger autonomous agent for each new transaction
+                const { runDecisionCycle } = await import("@/lib/agent/decision-engine")
+                for (const tx of txRecords) {
+                  await runDecisionCycle(orgId, {
+                    type: "webhook",
+                    event: "transaction_created",
+                    data: {
+                      description: tx.notes,
+                      amount: tx.amount,
+                      accountCode: tx.account_code,
+                      month: tx.month.slice(0, 7),
+                    },
+                  })
                 }
               } catch (err) {
                 console.error("Post-sync automation error:", err)

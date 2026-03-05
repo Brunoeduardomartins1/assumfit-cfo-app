@@ -15,6 +15,8 @@ import { PluggyConnectWidget } from "@/components/open-finance/pluggy-connect-wi
 import { toast } from "sonner"
 import { useOrg } from "@/hooks/use-org"
 import { reconcile } from "@/lib/open-finance/reconciler"
+import { usePeriodStore } from "@/stores/period-store"
+import { filterByPeriod } from "@/lib/period-utils"
 import { useSpreadsheetStore } from "@/stores/spreadsheet-store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 
@@ -226,8 +228,10 @@ export default function OpenFinancePage() {
     }
   }, [])
 
-  const classified = transactions.filter((t) => t.classifiedAccount).length
-  const total = transactions.length
+  const periodRange = usePeriodStore((s) => s.getDateRange)()
+  const filteredTransactions = filterByPeriod(transactions, periodRange, (t) => t.date)
+  const classified = filteredTransactions.filter((t) => t.classifiedAccount).length
+  const total = filteredTransactions.length
 
   return (
     <div className="space-y-6">
@@ -330,7 +334,7 @@ export default function OpenFinancePage() {
             </CardHeader>
             <CardContent>
               <div className="max-h-[500px] overflow-y-auto">
-                <TransactionList transactions={transactions} />
+                <TransactionList transactions={filteredTransactions} />
               </div>
             </CardContent>
           </Card>

@@ -1,0 +1,113 @@
+{
+  "name": "Monthly Close",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtHour": 12, "triggerAtDay": 1 }
+          ]
+        }
+      },
+      "id": "cron-monthly",
+      "name": "Cron Day 1 9h BRT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.VERCEL_APP_URL}}/api/agent/monthly-close",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "options": { "timeout": 120000 }
+      },
+      "id": "run-close",
+      "name": "Run Monthly Close",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [470, 300],
+      "credentials": {
+        "httpHeaderAuth": { "id": "agent-api-key", "name": "Agent API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst fmt = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 });\n\nconst msg = [\n  '📊 *Fechamento Mensal — ASSUMFIT CFO*',\n  `📅 Período: ${data.period}`,\n  '',\n  `💰 Receita: R$ ${fmt(data.revenue)}`,\n  `📉 EBITDA: R$ ${fmt(data.ebitda)}`,\n  `🔥 Burn Rate: R$ ${fmt(data.burnRate)}/mês`,\n  `⏳ Runway: ${Number(data.runwayMonths).toFixed(1)} meses`,\n  `🎯 Score: ${data.score}/100`,\n  '',\n  '📄 Board Report gerado automaticamente.',\n  '',\n  '_Deseja que eu envie o relatório completo por email? Responda SIM_',\n].join('\\n');\n\nreturn [{ json: { ...data, whatsappMessage: msg } }];"
+      },
+      "id": "format-close",
+      "name": "Format Close Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.z-api.io/instances/{{$env.ZAPI_INSTANCE_ID}}/token/{{$env.ZAPI_TOKEN}}/send-text",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{$env.WHATSAPP_NUMBER}}" },
+            { "name": "message", "value": "={{$json.whatsappMessage}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "whatsapp-close",
+      "name": "WhatsApp Close Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "from", "value": "ASSUMFIT CFO <cfo@assumfit.com.br>" },
+            { "name": "to", "value": "={{$env.NOTIFICATION_EMAIL}}" },
+            { "name": "subject", "value": "=📊 Fechamento Mensal — {{$json.period}}" },
+            { "name": "html", "value": "={{$json.reportHtml}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "email-close",
+      "name": "Email Board Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [910, 400],
+      "credentials": {
+        "httpHeaderAuth": { "id": "resend-api-key", "name": "Resend API Key" }
+      }
+    }
+  ],
+  "connections": {
+    "Cron Day 1 9h BRT": {
+      "main": [[{ "node": "Run Monthly Close", "type": "main", "index": 0 }]]
+    },
+    "Run Monthly Close": {
+      "main": [[{ "node": "Format Close Message", "type": "main", "index": 0 }]]
+    },
+    "Format Close Message": {
+      "main": [
+        [
+          { "node": "WhatsApp Close Summary", "type": "main", "index": 0 },
+          { "node": "Email Board Report", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "tags": [{ "name": "cron" }, { "name": "monthly" }, { "name": "production" }]
+}

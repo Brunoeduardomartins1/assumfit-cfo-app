@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation"
 import { Bell, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { mainNavItems } from "@/config/navigation"
+import { PeriodFilter } from "./period-filter"
 
 export function Topbar() {
   const pathname = usePathname()
@@ -24,6 +25,7 @@ export function Topbar() {
         )}
       </div>
       <div className="flex items-center gap-2">
+        <PeriodFilter />
         <Button variant="ghost" size="icon" className="h-9 w-9">
           <Search className="h-4 w-4" />
         </Button>

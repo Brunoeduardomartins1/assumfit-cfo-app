@@ -10,13 +10,13 @@ import { formatPercent } from "@/lib/formatters/percentage"
 import { MONTHLY_DATA, TOP_EXPENSES } from "@/config/seed-data"
 import { cn } from "@/lib/utils"
 import { ChevronDown, ChevronRight } from "lucide-react"
-
-const DRE_MONTHS = MONTHLY_DATA.filter((d) => d.receita !== null)
+import { usePeriodStore } from "@/stores/period-store"
+import { filterByPeriod } from "@/lib/period-utils"
 
 interface DRERowConfig {
   key: string
   label: string
-  getValue: (d: (typeof DRE_MONTHS)[number]) => number | null
+  getValue: (d: (typeof MONTHLY_DATA)[number]) => number | null
   format: "currency" | "percentage"
   isHighlight?: boolean
   isSeparator?: boolean
@@ -38,6 +38,12 @@ const DRE_ROWS: DRERowConfig[] = [
 
 export default function DrePage() {
   const currentPhase = getCurrentPhase()
+  const periodRange = usePeriodStore((s) => s.getDateRange)()
+  const DRE_MONTHS = filterByPeriod(
+    MONTHLY_DATA.filter((d) => d.receita !== null),
+    periodRange,
+    (d) => d.monthKey
+  )
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
 
   const toggleExpand = (key: string) => {

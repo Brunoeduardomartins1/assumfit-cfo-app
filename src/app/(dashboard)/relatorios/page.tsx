@@ -10,9 +10,11 @@ import { getCurrentPhase, getPhaseConfig } from "@/config/phases"
 import { MONTHLY_DATA, CURRENT_SNAPSHOT, TOP_EXPENSES, REVENUE_SOURCES } from "@/config/seed-data"
 import { formatBRL, formatBRLCompact } from "@/lib/formatters/currency"
 import { useAuditStore } from "@/stores/audit-store"
+import { usePeriodStore } from "@/stores/period-store"
 import { useOrg } from "@/hooks/use-org"
 import { useFinancialData } from "@/hooks/use-financial-data"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
+import { filterByPeriod, formatPeriodLabel } from "@/lib/period-utils"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 import {
@@ -101,8 +103,15 @@ export default function RelatoriosPage() {
   const auditTables = useMemo(() => ["audit_log"], [])
   useRealtimeSync(orgId, auditTables, reloadAudit)
 
+  const periodRange = usePeriodStore((s) => s.getDateRange)()
+  const periodLabel = formatPeriodLabel(periodRange)
+
   const snap = snapshot
-  const dreMonths = monthlyData.filter((d) => d.receita !== null)
+  const dreMonths = filterByPeriod(
+    monthlyData.filter((d) => d.receita !== null),
+    periodRange,
+    (d) => d.monthKey
+  )
 
   // Summary metrics
   const totalReceita2026 = dreMonths.reduce((sum, d) => sum + (d.receita ?? 0), 0)
@@ -197,7 +206,7 @@ export default function RelatoriosPage() {
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium text-muted-foreground">
-                Acumulado 2026
+                Acumulado {periodLabel}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -223,7 +232,7 @@ export default function RelatoriosPage() {
         {/* DRE Summary Table */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">DRE Resumida — Ultimos 6 meses</CardTitle>
+            <CardTitle className="text-base">DRE Resumida — {periodLabel}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-auto">
@@ -239,7 +248,7 @@ export default function RelatoriosPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {dreMonths.slice(-6).map((d) => (
+                  {dreMonths.map((d) => (
                     <tr key={d.month} className="border-b border-border/50">
                       <td className="py-2 text-xs font-medium">{d.month}</td>
                       <td className="py-2 text-right font-mono tabular-nums text-xs">

@@ -1,0 +1,232 @@
+{
+  "name": "WhatsApp Receiver",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp",
+        "options": {}
+      },
+      "id": "webhook-whatsapp",
+      "name": "Webhook WhatsApp",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\nconst phone = body.phone ?? body.from ?? '';\nconst text = (body.text?.message ?? body.body ?? '').trim().toUpperCase();\nconst isFromMe = body.fromMe === true;\n\nreturn [{ json: { phone, text, isFromMe, raw: body } }];"
+      },
+      "id": "extract-message",
+      "name": "Extract Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.isFromMe}}",
+              "value2": false
+            }
+          ],
+          "string": [
+            {
+              "value1": "={{$json.text}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "if-valid",
+      "name": "Is Valid Message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            { "output": 0, "value": "STATUS" },
+            { "output": 0, "value": "RESUMO" },
+            { "output": 1, "value": "RUNWAY" },
+            { "output": 2, "value": "OK" },
+            { "output": 2, "value": "SIM" },
+            { "output": 2, "value": "APROVAR" },
+            { "output": 3, "value": "NAO" },
+            { "output": 3, "value": "REJEITAR" }
+          ],
+          "fallbackOutput": 4
+        },
+        "dataPropertyName": "={{$json.text}}"
+      },
+      "id": "switch-command",
+      "name": "Switch Command",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.VERCEL_APP_URL}}/api/agent/daily-summary",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "get-status",
+      "name": "Get Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1130, 100],
+      "credentials": {
+        "httpHeaderAuth": { "id": "agent-api-key", "name": "Agent API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst score = data.score;\nconst scoreEmoji = score >= 70 ? '🟢' : score >= 40 ? '🟡' : '🔴';\nconst fmt = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 });\n\nconst msg = [\n  `${scoreEmoji} *Status ASSUMFIT — ${data.date}*`,\n  '',\n  `Score: *${score}/100*`,\n  `Saldo: R$ ${fmt(data.cashBalance)}`,\n  `Runway: *${Number(data.runwayMonths).toFixed(1)} meses*`,\n  `Burn: R$ ${fmt(data.burnRate)}/mês`,\n  `Receita: R$ ${fmt(data.revenue)}`,\n].join('\\n');\n\nreturn [{ json: { message: msg, phone: $('Extract Message').first().json.phone } }];"
+      },
+      "id": "format-status",
+      "name": "Format Status Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1350, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.VERCEL_APP_URL}}/api/agent/chat",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "message", "value": "={{$('Extract Message').first().json.text}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ai-chat",
+      "name": "Ask Claude AI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1130, 500],
+      "credentials": {
+        "httpHeaderAuth": { "id": "agent-api-key", "name": "Agent API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.z-api.io/instances/{{$env.ZAPI_INSTANCE_ID}}/token/{{$env.ZAPI_TOKEN}}/send-text",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{$json.phone ?? $('Extract Message').first().json.phone}}" },
+            { "name": "message", "value": "={{$json.message ?? $json.reply}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reply-whatsapp",
+      "name": "Reply WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1570, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.VERCEL_APP_URL}}/api/webhooks/whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{$('Extract Message').first().json.phone}}" },
+            { "name": "text", "value": "={{$('Extract Message').first().json.text}}" },
+            { "name": "action", "value": "approve" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "approve-action",
+      "name": "Approve Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1130, 250],
+      "credentials": {
+        "httpHeaderAuth": { "id": "agent-api-key", "name": "Agent API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.VERCEL_APP_URL}}/api/webhooks/whatsapp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{$('Extract Message').first().json.phone}}" },
+            { "name": "text", "value": "={{$('Extract Message').first().json.text}}" },
+            { "name": "action", "value": "reject" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "reject-action",
+      "name": "Reject Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1130, 400],
+      "credentials": {
+        "httpHeaderAuth": { "id": "agent-api-key", "name": "Agent API Key" }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook WhatsApp": {
+      "main": [[{ "node": "Extract Message", "type": "main", "index": 0 }]]
+    },
+    "Extract Message": {
+      "main": [[{ "node": "Is Valid Message?", "type": "main", "index": 0 }]]
+    },
+    "Is Valid Message?": {
+      "main": [
+        [{ "node": "Switch Command", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Switch Command": {
+      "main": [
+        [{ "node": "Get Status", "type": "main", "index": 0 }],
+        [{ "node": "Get Status", "type": "main", "index": 0 }],
+        [{ "node": "Approve Action", "type": "main", "index": 0 }],
+        [{ "node": "Reject Action", "type": "main", "index": 0 }],
+        [{ "node": "Ask Claude AI", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Status": {
+      "main": [[{ "node": "Format Status Reply", "type": "main", "index": 0 }]]
+    },
+    "Format Status Reply": {
+      "main": [[{ "node": "Reply WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Ask Claude AI": {
+      "main": [[{ "node": "Reply WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Approve Action": {
+      "main": [[{ "node": "Reply WhatsApp", "type": "main", "index": 0 }]]
+    },
+    "Reject Action": {
+      "main": [[{ "node": "Reply WhatsApp", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "tags": [{ "name": "whatsapp" }, { "name": "production" }]
+}

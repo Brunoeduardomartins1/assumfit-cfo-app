@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { formatBRL } from "@/lib/formatters/currency"
 import { useOrg } from "@/hooks/use-org"
 import { useFinancialData } from "@/hooks/use-financial-data"
+import { usePeriodStore } from "@/stores/period-store"
+import { filterByPeriod } from "@/lib/period-utils"
 
 function ChartSkeleton() {
   return <div className="h-[300px] bg-muted/20 rounded-lg animate-pulse" />
@@ -25,7 +27,9 @@ const ExpensesDonut = dynamic(() => import("@/components/charts/expenses-donut")
 export default function PainelPage() {
   const currentPhase = getCurrentPhase()
   const { orgId } = useOrg()
-  const { monthlyData, snapshot: d, topExpenses, loading } = useFinancialData(orgId)
+  const { monthlyData: allMonthlyData, snapshot: d, topExpenses, loading } = useFinancialData(orgId)
+  const periodRange = usePeriodStore((s) => s.getDateRange)()
+  const monthlyData = filterByPeriod(allMonthlyData, periodRange, (m) => m.monthKey)
 
   if (loading) {
     return (

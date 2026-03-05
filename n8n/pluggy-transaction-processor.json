@@ -1,0 +1,197 @@
+{
+  "name": "Pluggy Transaction Processor",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pluggy",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "webhook-pluggy",
+      "name": "Webhook Pluggy",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            { "output": 0, "value": "item/updated" },
+            { "output": 1, "value": "transactions/created" },
+            { "output": 2, "value": "item/error" }
+          ]
+        },
+        "dataPropertyName": "={{$json.body.event}}"
+      },
+      "id": "switch-event",
+      "name": "Switch Event Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.VERCEL_APP_URL}}/api/agent/process-transaction",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event", "value": "={{$json.body.event}}" },
+            { "name": "itemId", "value": "={{$json.body.itemId}}" },
+            { "name": "accountId", "value": "={{$json.body.accountId}}" },
+            { "name": "transactionsCreatedAtFrom", "value": "={{$json.body.transactionsCreatedAtFrom}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "process-transactions",
+      "name": "Process Transactions",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 200],
+      "credentials": {
+        "httpHeaderAuth": { "id": "agent-api-key", "name": "Agent API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.hasCriticalAnomaly}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-critical",
+      "name": "Has Critical Anomaly?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [920, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.z-api.io/instances/{{$env.ZAPI_INSTANCE_ID}}/token/{{$env.ZAPI_TOKEN}}/send-text",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{$env.WHATSAPP_NUMBER}}" },
+            { "name": "message", "value": "=🚨 *ALERTA CRÍTICO — ASSUMFIT CFO*\n\n{{$json.alertMessage}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "whatsapp-alert",
+      "name": "WhatsApp Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1140, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "from", "value": "ASSUMFIT CFO <cfo@assumfit.com.br>" },
+            { "name": "to", "value": "={{$env.NOTIFICATION_EMAIL}}" },
+            { "name": "subject", "value": "=[CRITICO] {{$json.alertTitle}}" },
+            { "name": "html", "value": "={{$json.alertHtml}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "email-alert",
+      "name": "Email Critical Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1140, 300],
+      "credentials": {
+        "httpHeaderAuth": { "id": "resend-api-key", "name": "Resend API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.VERCEL_APP_URL}}/api/agent/process-transaction",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event", "value": "item/error" },
+            { "name": "itemId", "value": "={{$json.body.itemId}}" },
+            { "name": "error", "value": "={{$json.body.error}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "handle-error",
+      "name": "Handle Item Error",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.VERCEL_APP_URL}}/api/agent/process-transaction",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "event", "value": "item/updated" },
+            { "name": "itemId", "value": "={{$json.body.itemId}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "handle-update",
+      "name": "Handle Item Updated",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 50]
+    }
+  ],
+  "connections": {
+    "Webhook Pluggy": {
+      "main": [
+        [{ "node": "Switch Event Type", "type": "main", "index": 0 }]
+      ]
+    },
+    "Switch Event Type": {
+      "main": [
+        [{ "node": "Handle Item Updated", "type": "main", "index": 0 }],
+        [{ "node": "Process Transactions", "type": "main", "index": 0 }],
+        [{ "node": "Handle Item Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Process Transactions": {
+      "main": [
+        [{ "node": "Has Critical Anomaly?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Critical Anomaly?": {
+      "main": [
+        [
+          { "node": "WhatsApp Alert", "type": "main", "index": 0 },
+          { "node": "Email Critical Alert", "type": "main", "index": 0 }
+        ],
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": [{ "name": "pluggy" }, { "name": "production" }]
+}

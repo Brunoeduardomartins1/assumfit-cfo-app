@@ -1,0 +1,118 @@
+{
+  "name": "Bill Due Checker",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtHour": 11 }
+          ]
+        }
+      },
+      "id": "cron-bills",
+      "name": "Cron 8h BRT",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT b.id, b.description, b.amount, b.due_date, b.status, b.category, s.name as supplier_name, (b.due_date - CURRENT_DATE) as days_until FROM bills b LEFT JOIN suppliers s ON b.supplier_id = s.id WHERE b.status = 'pending' AND b.due_date <= CURRENT_DATE + INTERVAL '7 days' AND b.due_date >= CURRENT_DATE ORDER BY b.due_date ASC",
+        "options": {}
+      },
+      "id": "get-bills",
+      "name": "Get Upcoming Bills",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [470, 300],
+      "credentials": {
+        "postgres": { "id": "supabase-db", "name": "Supabase DB" }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.length ?? $input.all().length}}",
+              "operation": "largerEqual",
+              "value2": 1
+            }
+          ]
+        }
+      },
+      "id": "if-has-bills",
+      "name": "Has Upcoming Bills?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const bills = $input.all().map(i => i.json);\nconst fmt = (v) => Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 });\n\nconst lines = ['📋 *Contas a Pagar — Próximos 7 dias*', ''];\nlet total = 0;\n\nfor (const bill of bills) {\n  const days = Number(bill.days_until);\n  const urgency = days <= 1 ? '🔴' : days <= 3 ? '🟡' : '🟢';\n  lines.push(`${urgency} *${bill.description}*`);\n  lines.push(`   R$ ${fmt(bill.amount)} — vence em ${days} dia(s) (${bill.due_date})`);\n  if (bill.supplier_name) lines.push(`   Fornecedor: ${bill.supplier_name}`);\n  lines.push('');\n  total += Number(bill.amount);\n}\n\nlines.push(`💰 *Total:* R$ ${fmt(total)}`);\nlines.push('', '_Enviado automaticamente pelo ASSUMFIT CFO_');\n\nreturn [{ json: { message: lines.join('\\n'), billCount: bills.length, total } }];"
+      },
+      "id": "format-bills",
+      "name": "Format Bill Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.z-api.io/instances/{{$env.ZAPI_INSTANCE_ID}}/token/{{$env.ZAPI_TOKEN}}/send-text",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{$env.WHATSAPP_NUMBER}}" },
+            { "name": "message", "value": "={{$json.message}}" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "whatsapp-bills",
+      "name": "Send WhatsApp Bills",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE bills SET status = 'overdue' WHERE status = 'pending' AND due_date < CURRENT_DATE RETURNING id",
+        "options": {}
+      },
+      "id": "mark-overdue",
+      "name": "Mark Overdue Bills",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [910, 400],
+      "credentials": {
+        "postgres": { "id": "supabase-db", "name": "Supabase DB" }
+      }
+    }
+  ],
+  "connections": {
+    "Cron 8h BRT": {
+      "main": [[{ "node": "Get Upcoming Bills", "type": "main", "index": 0 }]]
+    },
+    "Get Upcoming Bills": {
+      "main": [[{ "node": "Has Upcoming Bills?", "type": "main", "index": 0 }]]
+    },
+    "Has Upcoming Bills?": {
+      "main": [
+        [
+          { "node": "Format Bill Message", "type": "main", "index": 0 },
+          { "node": "Mark Overdue Bills", "type": "main", "index": 0 }
+        ],
+        [{ "node": "Mark Overdue Bills", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Bill Message": {
+      "main": [[{ "node": "Send WhatsApp Bills", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "tags": [{ "name": "cron" }, { "name": "bills" }, { "name": "production" }]
+}

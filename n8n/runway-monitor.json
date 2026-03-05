@@ -1,0 +1,182 @@
+{
+  "name": "Runway Monitor",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtHour": 6 },
+            { "triggerAtHour": 12 },
+            { "triggerAtHour": 18 },
+            { "triggerAtHour": 0 }
+          ]
+        }
+      },
+      "id": "cron-runway",
+      "name": "Cron Every 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(SUM(ba.balance), 0) as total_balance FROM bank_accounts ba WHERE ba.connection_status = 'connected'",
+        "options": {}
+      },
+      "id": "get-balance",
+      "name": "Get Cash Balance",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [470, 300],
+      "credentials": {
+        "postgres": { "id": "supabase-db", "name": "Supabase DB" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COALESCE(ABS(SUM(t.amount)), 0) as burn_rate FROM transactions t WHERE t.entry_type = 'realizado' AND t.amount < 0 AND t.month >= date_trunc('month', CURRENT_DATE)::text LIMIT 1",
+        "options": {}
+      },
+      "id": "get-burn",
+      "name": "Get Burn Rate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [470, 450],
+      "credentials": {
+        "postgres": { "id": "supabase-db", "name": "Supabase DB" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const balance = Number($('Get Cash Balance').first().json.total_balance) || 0;\nconst burnRate = Number($('Get Burn Rate').first().json.burn_rate) || 1;\nconst runwayMonths = burnRate > 0 ? balance / burnRate : 99;\nconst runwayDays = runwayMonths * 30;\n\nreturn [{ json: { balance, burnRate, runwayMonths, runwayDays, isCritical: runwayDays < 30, isWarning: runwayDays < 90 } }];"
+      },
+      "id": "calc-runway",
+      "name": "Calculate Runway",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [690, 375]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "output": 0,
+              "conditions": {
+                "boolean": [{ "value1": "={{$json.isCritical}}", "value2": true }]
+              }
+            },
+            {
+              "output": 1,
+              "conditions": {
+                "boolean": [{ "value1": "={{$json.isWarning}}", "value2": true }]
+              }
+            }
+          ],
+          "fallbackOutput": 2
+        }
+      },
+      "id": "switch-runway",
+      "name": "Runway Level",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [910, 375]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.z-api.io/instances/{{$env.ZAPI_INSTANCE_ID}}/token/{{$env.ZAPI_TOKEN}}/send-text",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "phone", "value": "={{$env.WHATSAPP_NUMBER}}" },
+            {
+              "name": "message",
+              "value": "=🚨 *ALERTA CRÍTICO — RUNWAY*\n\n⏳ Runway: *{{$json.runwayMonths.toFixed(1)}} meses* ({{Math.round($json.runwayDays)}} dias)\n🏦 Saldo: R$ {{Number($json.balance).toLocaleString('pt-BR')}}\n🔥 Burn: R$ {{Number($json.burnRate).toLocaleString('pt-BR')}}/mês\n\n⚠️ *Ação imediata necessária!*\nResponda RUNWAY para ver opções de corte."
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "whatsapp-critical",
+      "name": "WhatsApp Critical Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1130, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.resend.com/emails",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "from", "value": "ASSUMFIT CFO <cfo@assumfit.com.br>" },
+            { "name": "to", "value": "={{$env.NOTIFICATION_EMAIL}}" },
+            { "name": "subject", "value": "=🚨 [CRITICO] Runway abaixo de 30 dias!" },
+            { "name": "html", "value": "=<h1>Runway Critico</h1><p>Runway: {{$json.runwayMonths.toFixed(1)}} meses</p><p>Saldo: R$ {{Number($json.balance).toLocaleString('pt-BR')}}</p><p>Burn Rate: R$ {{Number($json.burnRate).toLocaleString('pt-BR')}}/mes</p>" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "email-critical",
+      "name": "Email Critical Runway",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1130, 400],
+      "credentials": {
+        "httpHeaderAuth": { "id": "resend-api-key", "name": "Resend API Key" }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO agent_memory (organization_id, memory_type, key, value) SELECT o.id, 'context', 'runway_check', jsonb_build_object('balance', {{$json.balance}}, 'burnRate', {{$json.burnRate}}, 'runwayMonths', {{$json.runwayMonths}}, 'checkedAt', NOW()::text) FROM organizations o LIMIT 1 ON CONFLICT (organization_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()",
+        "options": {}
+      },
+      "id": "save-metric",
+      "name": "Save Metric",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1130, 550],
+      "credentials": {
+        "postgres": { "id": "supabase-db", "name": "Supabase DB" }
+      }
+    }
+  ],
+  "connections": {
+    "Cron Every 6h": {
+      "main": [
+        [
+          { "node": "Get Cash Balance", "type": "main", "index": 0 },
+          { "node": "Get Burn Rate", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Cash Balance": {
+      "main": [[{ "node": "Calculate Runway", "type": "main", "index": 0 }]]
+    },
+    "Get Burn Rate": {
+      "main": [[{ "node": "Calculate Runway", "type": "main", "index": 0 }]]
+    },
+    "Calculate Runway": {
+      "main": [[{ "node": "Runway Level", "type": "main", "index": 0 }]]
+    },
+    "Runway Level": {
+      "main": [
+        [
+          { "node": "WhatsApp Critical Alert", "type": "main", "index": 0 },
+          { "node": "Email Critical Runway", "type": "main", "index": 0 }
+        ],
+        [{ "node": "Save Metric", "type": "main", "index": 0 }],
+        [{ "node": "Save Metric", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "tags": [{ "name": "monitor" }, { "name": "production" }]
+}
