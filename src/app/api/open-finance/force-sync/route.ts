@@ -8,18 +8,27 @@ const CANONICAL_ORG_ID = "d6c324a8-3b33-43a4-9756-9091154387bc"
  * Authenticate with Pluggy REST API and return an API key.
  */
 async function getPluggyApiKey(): Promise<string> {
+  const clientId = process.env.PLUGGY_CLIENT_ID?.trim()
+  const clientSecret = process.env.PLUGGY_CLIENT_SECRET?.trim()
+
+  console.log(`[force-sync] Authenticating with Pluggy (clientId: ${clientId?.slice(0, 8)}...)`)
+
   const res = await fetch("https://api.pluggy.ai/auth", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      clientId: process.env.PLUGGY_CLIENT_ID,
-      clientSecret: process.env.PLUGGY_CLIENT_SECRET,
-    }),
+    body: JSON.stringify({ clientId, clientSecret }),
+    cache: "no-store",
   })
+
+  const responseText = await res.text()
+
   if (!res.ok) {
-    throw new Error(`Pluggy auth failed: ${res.status} ${await res.text()}`)
+    console.error(`[force-sync] Pluggy auth failed: ${res.status}`, responseText)
+    throw new Error(`Pluggy auth failed: ${res.status} ${responseText}`)
   }
-  const data = await res.json()
+
+  const data = JSON.parse(responseText)
+  console.log(`[force-sync] Pluggy auth success, apiKey starts with: ${data.apiKey?.slice(0, 8)}...`)
   return data.apiKey
 }
 
@@ -29,6 +38,7 @@ async function getPluggyApiKey(): Promise<string> {
 async function listPluggyItems(apiKey: string) {
   const res = await fetch("https://api.pluggy.ai/items", {
     headers: { "X-API-KEY": apiKey },
+    cache: "no-store",
   })
   if (!res.ok) {
     throw new Error(`Pluggy list items failed: ${res.status} ${await res.text()}`)
