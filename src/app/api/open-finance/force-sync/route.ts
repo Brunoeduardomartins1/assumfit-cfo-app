@@ -1,9 +1,41 @@
 import { NextResponse } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { pluggyProvider } from "@/lib/open-finance/pluggy-client"
-import { PluggyClient } from "pluggy-sdk"
 
 const CANONICAL_ORG_ID = "d6c324a8-3b33-43a4-9756-9091154387bc"
+
+/**
+ * Authenticate with Pluggy REST API and return an API key.
+ */
+async function getPluggyApiKey(): Promise<string> {
+  const res = await fetch("https://api.pluggy.ai/auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      clientId: process.env.PLUGGY_CLIENT_ID,
+      clientSecret: process.env.PLUGGY_CLIENT_SECRET,
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`Pluggy auth failed: ${res.status} ${await res.text()}`)
+  }
+  const data = await res.json()
+  return data.apiKey
+}
+
+/**
+ * List all items from Pluggy REST API.
+ */
+async function listPluggyItems(apiKey: string) {
+  const res = await fetch("https://api.pluggy.ai/items", {
+    headers: { "X-API-KEY": apiKey },
+  })
+  if (!res.ok) {
+    throw new Error(`Pluggy list items failed: ${res.status} ${await res.text()}`)
+  }
+  const data = await res.json()
+  return data.results ?? []
+}
 
 /**
  * GET /api/open-finance/force-sync
@@ -20,12 +52,11 @@ export async function GET() {
       )
     }
 
-    const pluggy = new PluggyClient({ clientId, clientSecret })
+    const apiKey = await getPluggyApiKey()
     const admin = createAdminClient()
 
-    // List all connected items
-    const itemsResponse = await pluggy.fetchItems()
-    const items = itemsResponse.results ?? []
+    // List all connected items via REST API
+    const items = await listPluggyItems(apiKey)
 
     if (items.length === 0) {
       return NextResponse.json({ message: "Nenhum item conectado na Pluggy", items: 0, accounts: 0, transactions: 0 })
@@ -40,8 +71,8 @@ export async function GET() {
     const errors: string[] = []
 
     for (const item of items) {
-      const itemId = item.id
-      const institutionName = item.connector?.name ?? "Banco"
+      const itemId = item.id as string
+      const institutionName = (item.connector?.name ?? item.institutionName ?? "Banco") as string
 
       console.log(`[force-sync] Processing item ${itemId} (${institutionName})`)
 
