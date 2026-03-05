@@ -23,6 +23,7 @@ import {
 import { useOrg } from "@/hooks/use-org"
 import { getOrganization, updateOrganization } from "@/lib/supabase/queries"
 import { toast } from "sonner"
+import MembersSection from "@/components/settings/members-section"
 
 interface IntegrationStatus {
   name: string
@@ -104,6 +105,9 @@ export default function ConfiguracoesPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
+        {/* Members */}
+        <MembersSection />
+
         {/* Organization */}
         <Card>
           <CardHeader>

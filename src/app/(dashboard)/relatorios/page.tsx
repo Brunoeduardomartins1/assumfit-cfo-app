@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,6 +12,7 @@ import { formatBRL, formatBRLCompact } from "@/lib/formatters/currency"
 import { useAuditStore } from "@/stores/audit-store"
 import { useOrg } from "@/hooks/use-org"
 import { useFinancialData } from "@/hooks/use-financial-data"
+import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 import {
@@ -90,9 +91,15 @@ export default function RelatoriosPage() {
   const reportRef = useRef<HTMLDivElement>(null)
 
   // Load audit trail from DB
-  useEffect(() => {
+  const reloadAudit = useCallback(() => {
     if (orgId) loadAuditFromDb(orgId)
   }, [orgId, loadAuditFromDb])
+
+  useEffect(() => { reloadAudit() }, [reloadAudit])
+
+  // Realtime sync for audit_log
+  const auditTables = useMemo(() => ["audit_log"], [])
+  useRealtimeSync(orgId, auditTables, reloadAudit)
 
   const snap = snapshot
   const dreMonths = monthlyData.filter((d) => d.receita !== null)

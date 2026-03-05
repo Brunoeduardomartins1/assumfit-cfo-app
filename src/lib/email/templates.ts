@@ -165,6 +165,45 @@ ${data.boardReport}
 }
 
 // ---------------------------------------------------------------------------
+// Organization Invite
+// ---------------------------------------------------------------------------
+export interface InviteEmailData {
+  inviterName: string
+  orgName: string
+  role: string
+  token: string
+}
+
+export function buildInviteEmail(data: InviteEmailData): string {
+  const roleLabels: Record<string, string> = {
+    admin: "Administrador",
+    editor: "Editor",
+    viewer: "Visualizador",
+  }
+  const roleLabel = roleLabels[data.role] ?? data.role
+  const acceptUrl = `${APP_URL}/convite/${data.token}`
+
+  return layout(
+    `Convite para ${data.orgName}`,
+    `<div style="background:#0f172a;border-radius:8px;padding:20px;margin-bottom:20px;text-align:center;">
+       <p style="color:#94a3b8;font-size:14px;margin:0 0 8px;">Voce foi convidado por</p>
+       <p style="color:#f1f5f9;font-size:18px;font-weight:700;margin:0 0 4px;">${data.inviterName}</p>
+       <p style="color:#94a3b8;font-size:13px;margin:0;">para participar da organizacao</p>
+       <p style="color:#22c55e;font-size:16px;font-weight:600;margin:8px 0;">${data.orgName}</p>
+       <p style="color:#94a3b8;font-size:13px;margin:0;">como <strong style="color:#f1f5f9;">${roleLabel}</strong></p>
+     </div>
+     <div style="text-align:center;margin-bottom:20px;">
+       <a href="${acceptUrl}" style="display:inline-block;background:#22c55e;color:#0f172a;font-weight:700;font-size:14px;padding:12px 32px;border-radius:8px;text-decoration:none;">
+         Aceitar Convite
+       </a>
+     </div>
+     <p style="color:#64748b;font-size:12px;text-align:center;">
+       Este convite expira em 7 dias. Se voce nao esperava este email, pode ignora-lo.
+     </p>`
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Critical Alert
 // ---------------------------------------------------------------------------
 export interface CriticalAlertData {

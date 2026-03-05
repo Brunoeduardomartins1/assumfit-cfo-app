@@ -57,7 +57,6 @@ export const useAuditStore = create<AuditState>((set, get) => ({
   },
 
   loadFromDb: async (orgId: string) => {
-    if (get().loaded) return
     try {
       const { getAuditLog } = await import("@/lib/supabase/queries")
       const dbEntries = await getAuditLog(orgId, 100)
@@ -84,3 +83,33 @@ export const useAuditStore = create<AuditState>((set, get) => ({
     }
   },
 }))
+
+/**
+ * Subscribe to Realtime changes on audit_log.
+ * Returns unsubscribe function.
+ */
+let _auditRealtimeUnsub: (() => void) | null = null
+
+export function subscribeAuditRealtime(orgId: string) {
+  if (_auditRealtimeUnsub) _auditRealtimeUnsub()
+
+  import("@/hooks/use-realtime-sync").then(({ subscribeRealtime }) => {
+    _auditRealtimeUnsub = subscribeRealtime(
+      orgId,
+      ["audit_log"],
+      () => {
+        const store = useAuditStore.getState()
+        // Reset loaded flag so loadFromDb re-fetches
+        useAuditStore.setState({ loaded: false })
+        store.loadFromDb(orgId)
+      }
+    )
+  })
+
+  return () => {
+    if (_auditRealtimeUnsub) {
+      _auditRealtimeUnsub()
+      _auditRealtimeUnsub = null
+    }
+  }
+}

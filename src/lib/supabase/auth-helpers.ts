@@ -48,6 +48,7 @@ export async function requireAuth(): Promise<
 
 /**
  * Create organization + profile for a new user (uses admin client to bypass RLS).
+ * Always consolidates all users into the oldest org (the one that has the data).
  */
 export async function setupUserOrg(
   userId: string,
@@ -56,6 +57,14 @@ export async function setupUserOrg(
 ) {
   const admin = createAdminClient()
 
+  // Find the canonical org — the oldest one (has the data)
+  const { data: canonicalOrg } = await admin
+    .from("organizations")
+    .select("id, name")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .single()
+
   // Check if profile already exists
   const { data: existing } = await admin
     .from("profiles")
@@ -63,11 +72,34 @@ export async function setupUserOrg(
     .eq("id", userId)
     .single()
 
-  if (existing?.organization_id) {
-    return { orgId: existing.organization_id, created: false }
+  if (canonicalOrg) {
+    const targetOrgId = canonicalOrg.id as string
+
+    // Always consolidate ALL other orgs into the canonical one
+    await consolidateAllOrgs(admin, targetOrgId)
+
+    // Remove "Conta Simples" bank — user only wants Itau
+    await admin
+      .from("bank_accounts")
+      .delete()
+      .eq("organization_id", targetOrgId)
+      .ilike("bank_name", "%conta simples%")
+
+    // User exists but is in a DIFFERENT org — reassign
+    if (!existing?.organization_id || existing.organization_id !== targetOrgId) {
+      const { error: profErr } = await admin.from("profiles").upsert({
+        id: userId,
+        organization_id: targetOrgId,
+        full_name: fullName || undefined,
+        role: "owner",
+      })
+      if (profErr) throw profErr
+    }
+
+    return { orgId: targetOrgId, created: false, autoJoined: true }
   }
 
-  // Create organization
+  // No org exists yet — create one
   const slug = email.split("@")[0].toLowerCase().replace(/[^a-z0-9]/g, "-")
   const { data: org, error: orgErr } = await admin
     .from("organizations")
@@ -86,4 +118,66 @@ export async function setupUserOrg(
   if (profErr) throw profErr
 
   return { orgId: org.id as string, created: true }
+}
+
+/**
+ * Consolidate ALL orgs into the canonical one.
+ * Migrates data from every non-canonical org so all users see all data.
+ */
+async function consolidateAllOrgs(
+  admin: ReturnType<typeof createAdminClient>,
+  targetOrgId: string
+) {
+  // Find all orgs that are NOT the canonical one
+  const { data: otherOrgs, error: findErr } = await admin
+    .from("organizations")
+    .select("id")
+    .neq("id", targetOrgId)
+
+  if (findErr) {
+    console.error("[consolidateAllOrgs] Error finding orgs:", findErr)
+    return
+  }
+
+  if (!otherOrgs || otherOrgs.length === 0) return
+
+  console.log(`[consolidateAllOrgs] Migrating ${otherOrgs.length} org(s) into ${targetOrgId}`)
+
+  const tables = [
+    "bank_accounts",
+    "transactions",
+    "income_statement",
+    "chart_of_accounts",
+    "scenarios",
+    "audit_log",
+    "alerts",
+  ]
+
+  for (const org of otherOrgs) {
+    const oldOrgId = org.id as string
+    console.log(`[consolidateAllOrgs] Migrating org ${oldOrgId} → ${targetOrgId}`)
+
+    for (const table of tables) {
+      const { error, count } = await admin
+        .from(table)
+        .update({ organization_id: targetOrgId })
+        .eq("organization_id", oldOrgId)
+
+      if (error) {
+        console.error(`[consolidateAllOrgs] Error migrating ${table}:`, error)
+      } else if (count && count > 0) {
+        console.log(`[consolidateAllOrgs] Migrated ${count} rows in ${table}`)
+      }
+    }
+
+    // Move profiles from old org
+    const { error: profErr } = await admin
+      .from("profiles")
+      .update({ organization_id: targetOrgId })
+      .eq("organization_id", oldOrgId)
+
+    if (profErr) {
+      console.error("[consolidateAllOrgs] Error migrating profiles:", profErr)
+    }
+  }
 }

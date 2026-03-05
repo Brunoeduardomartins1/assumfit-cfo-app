@@ -330,6 +330,38 @@ export const useSpreadsheetStore = create<SpreadsheetState>((set, get) => ({
   },
 }))
 
+/**
+ * Subscribe to Realtime changes on transactions + chart_of_accounts.
+ * Returns unsubscribe function. Call from useEffect in pages.
+ */
+let _realtimeUnsub: (() => void) | null = null
+
+export function subscribeSpreadsheetRealtime(orgId: string) {
+  // Avoid double-subscribe
+  if (_realtimeUnsub) _realtimeUnsub()
+
+  import("@/hooks/use-realtime-sync").then(({ subscribeRealtime }) => {
+    _realtimeUnsub = subscribeRealtime(
+      orgId,
+      ["transactions", "chart_of_accounts"],
+      () => {
+        const store = useSpreadsheetStore.getState()
+        // Only re-fetch if not currently editing (has no dirty cells)
+        if (store.dirtyCells.size === 0) {
+          store.loadFromDb(orgId)
+        }
+      }
+    )
+  })
+
+  return () => {
+    if (_realtimeUnsub) {
+      _realtimeUnsub()
+      _realtimeUnsub = null
+    }
+  }
+}
+
 function mapTypeToSection(type: string): FluxoSection {
   switch (type) {
     case "revenue": return "entradas"

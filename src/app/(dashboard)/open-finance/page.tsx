@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +17,7 @@ import { useOrg } from "@/hooks/use-org"
 import { getBankAccounts, getTransactions } from "@/lib/supabase/queries"
 import { reconcile } from "@/lib/open-finance/reconciler"
 import { useSpreadsheetStore } from "@/stores/spreadsheet-store"
+import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 
 // Demo data for when DB is empty / Pluggy not configured
 const DEMO_CONNECTION: OpenFinanceConnection = {
@@ -77,61 +78,65 @@ export default function OpenFinancePage() {
   const [syncing, setSyncing] = useState<string | null>(null)
 
   // Load bank accounts + realized transactions from DB
+  const loadOpenFinanceData = useCallback(async () => {
+    if (!orgId) return
+    try {
+      const [dbAccounts, dbTxs] = await Promise.all([
+        getBankAccounts(orgId),
+        getTransactions(orgId, { source: "open_finance" }),
+      ])
+      if (dbAccounts.length > 0) {
+        const conn: OpenFinanceConnection = {
+          id: dbAccounts[0].id,
+          provider: dbAccounts[0].provider as "pluggy",
+          institutionName: dbAccounts[0].bank_name,
+          status: dbAccounts[0].connection_status === "connected" ? "connected" : "error",
+          lastSync: dbAccounts[0].last_sync,
+          createdAt: dbAccounts[0].created_at,
+          accounts: dbAccounts.map((a) => ({
+            id: a.id,
+            connectionId: a.id,
+            name: a.bank_name,
+            type: (a.account_type as "checking") ?? "checking",
+            number: a.account_number ?? undefined,
+            balance: a.balance ?? 0,
+            currencyCode: "BRL",
+          })),
+        }
+        setConnections([conn])
+      }
+      if (dbTxs.length > 0) {
+        const bankTxs: BankTransaction[] = dbTxs.map((t) => ({
+          id: t.id,
+          accountId: "acc-db",
+          date: t.month.slice(0, 10),
+          description: t.notes ?? t.account_code,
+          amount: Math.abs(Number(t.amount)),
+          type: Number(t.amount) < 0 ? "debit" as const : "credit" as const,
+          classifiedAccount: t.account_code,
+          categoryConfidence: "high" as const,
+        }))
+        setTransactions(bankTxs)
+        if (fluxoRows.length > 0) {
+          const monthKeys = fluxoMonths.map((m) => m.key)
+          const recon = reconcile(bankTxs, fluxoRows, monthKeys)
+          if (recon.length > 0) setReconciliation(recon)
+        }
+      }
+      setLoadedFromDb(true)
+    } catch {
+      setLoadedFromDb(true)
+    }
+  }, [orgId, fluxoRows, fluxoMonths])
+
   useEffect(() => {
     if (!orgId || loadedFromDb) return
-    ;(async () => {
-      try {
-        const [dbAccounts, dbTxs] = await Promise.all([
-          getBankAccounts(orgId),
-          getTransactions(orgId, { source: "open_finance" }),
-        ])
-        if (dbAccounts.length > 0) {
-          // Build connections from bank_accounts
-          const conn: OpenFinanceConnection = {
-            id: dbAccounts[0].id,
-            provider: dbAccounts[0].provider as "pluggy",
-            institutionName: dbAccounts[0].bank_name,
-            status: dbAccounts[0].connection_status === "connected" ? "connected" : "error",
-            lastSync: dbAccounts[0].last_sync,
-            createdAt: dbAccounts[0].created_at,
-            accounts: dbAccounts.map((a) => ({
-              id: a.id,
-              connectionId: a.id,
-              name: a.bank_name,
-              type: (a.account_type as "checking") ?? "checking",
-              number: a.account_number ?? undefined,
-              balance: a.balance ?? 0,
-              currencyCode: "BRL",
-            })),
-          }
-          setConnections([conn])
-        }
-        if (dbTxs.length > 0) {
-          const bankTxs: BankTransaction[] = dbTxs.map((t) => ({
-            id: t.id,
-            accountId: "acc-db",
-            date: t.month.slice(0, 10),
-            description: t.notes ?? t.account_code,
-            amount: Math.abs(Number(t.amount)),
-            type: Number(t.amount) < 0 ? "debit" as const : "credit" as const,
-            classifiedAccount: t.account_code,
-            categoryConfidence: "high" as const,
-          }))
-          setTransactions(bankTxs)
-          // Build reconciliation from DB data
-          if (fluxoRows.length > 0) {
-            const monthKeys = fluxoMonths.map((m) => m.key)
-            const recon = reconcile(bankTxs, fluxoRows, monthKeys)
-            if (recon.length > 0) setReconciliation(recon)
-          }
-        }
-        setLoadedFromDb(true)
-      } catch {
-        // Fall back to demo data
-        setLoadedFromDb(true)
-      }
-    })()
-  }, [orgId, loadedFromDb, fluxoRows, fluxoMonths])
+    loadOpenFinanceData()
+  }, [orgId, loadedFromDb, loadOpenFinanceData])
+
+  // Realtime sync — re-fetch when bank_accounts or transactions change
+  const realtimeTables = useMemo(() => ["bank_accounts", "transactions"], [])
+  useRealtimeSync(orgId, realtimeTables, loadOpenFinanceData)
 
   const handleConnectSuccess = useCallback(async (itemId: string) => {
     if (!orgId) return

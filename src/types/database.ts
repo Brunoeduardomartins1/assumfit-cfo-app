@@ -78,6 +78,19 @@ export interface Alert {
   created_at: string
 }
 
+export interface OrganizationInvite {
+  id: string
+  organization_id: string
+  user_id: string | null
+  role: "admin" | "editor" | "viewer"
+  invited_email: string
+  invite_token: string
+  invite_status: "pending" | "accepted" | "expired" | "revoked"
+  invited_by: string
+  created_at: string
+  expires_at: string
+}
+
 export interface AuditLogEntry {
   id: string
   organization_id: string

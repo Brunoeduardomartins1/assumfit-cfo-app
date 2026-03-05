@@ -43,6 +43,7 @@ export async function updateSession(request: NextRequest) {
     !request.nextUrl.pathname.startsWith("/login") &&
     !request.nextUrl.pathname.startsWith("/cadastro") &&
     !request.nextUrl.pathname.startsWith("/recuperar-senha") &&
+    !request.nextUrl.pathname.startsWith("/convite") &&
     request.nextUrl.pathname !== "/"
   ) {
     const url = request.nextUrl.clone()

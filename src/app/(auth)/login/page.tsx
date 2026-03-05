@@ -1,19 +1,22 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { Suspense, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/client"
+import { forceRefreshOrg } from "@/hooks/use-org"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const inviteToken = searchParams.get("invite")
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -47,9 +50,15 @@ export default function LoginPage() {
       } catch {
         // Non-blocking — profile setup is best-effort
       }
+      forceRefreshOrg()
     }
 
-    router.push("/painel")
+    // If there's an invite token, redirect to accept page
+    if (inviteToken) {
+      router.push(`/convite/${inviteToken}`)
+    } else {
+      router.push("/painel")
+    }
     router.refresh()
   }
 
@@ -57,6 +66,11 @@ export default function LoginPage() {
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Entrar</CardTitle>
+        {inviteToken && (
+          <p className="text-sm text-muted-foreground">
+            Faca login para aceitar o convite
+          </p>
+        )}
       </CardHeader>
       <form onSubmit={handleLogin}>
         <CardContent className="space-y-4">
@@ -97,7 +111,10 @@ export default function LoginPage() {
             {loading ? "Entrando..." : "Entrar"}
           </Button>
           <div className="text-sm text-muted-foreground text-center space-y-1">
-            <Link href="/cadastro" className="text-primary hover:underline block">
+            <Link
+              href={inviteToken ? `/cadastro?invite=${inviteToken}` : "/cadastro"}
+              className="text-primary hover:underline block"
+            >
               Criar conta
             </Link>
             <Link href="/recuperar-senha" className="text-primary hover:underline block">
@@ -107,5 +124,13 @@ export default function LoginPage() {
         </CardFooter>
       </form>
     </Card>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
   )
 }

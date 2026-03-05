@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useCallback } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -24,6 +24,7 @@ import { GitBranch, TrendingUp, TrendingDown, Minus, Plus } from "lucide-react"
 import { useOrg } from "@/hooks/use-org"
 import { getScenarios, createScenario, deleteScenario as deleteScenarioDb } from "@/lib/supabase/queries"
 import { toast } from "sonner"
+import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 
 const METRIC_OPTIONS = [
   { key: "ebitda" as const, label: "EBITDA" },
@@ -72,33 +73,35 @@ export default function CenariosPage() {
   const [metric, setMetric] = useState<"ebitda" | "receita" | "saldoFinal" | "burnRate">("ebitda")
 
   // Load scenarios from DB, merge with templates
-  useEffect(() => {
+  const loadScenarios = useCallback(async () => {
     if (!orgId) return
-    ;(async () => {
-      try {
-        const dbScenarios = await getScenarios(orgId)
-        if (dbScenarios.length > 0) {
-          // Convert DB scenarios to local format and merge with templates
-          const dbMapped: Scenario[] = dbScenarios.map((s) => ({
-            id: s.id,
-            name: s.name,
-            description: s.description ?? "",
-            type: s.is_base ? "base" as const : "custom" as const,
-            createdAt: s.created_at,
-            modifiers: s.growth_rate
-              ? [{ id: `m-${s.id}`, target: "receita" as const, operation: "multiply" as const, value: 1 + s.growth_rate / 100, label: `Receita ${s.growth_rate > 0 ? "+" : ""}${s.growth_rate}%` }]
-              : [],
-          }))
-          // Merge: templates first, then DB scenarios that aren't duplicates
-          const templateIds = new Set(SCENARIO_TEMPLATES.map((t) => t.id))
-          const merged = [...SCENARIO_TEMPLATES, ...dbMapped.filter((s) => !templateIds.has(s.id))]
-          setScenarios(merged)
-        }
-      } catch {
-        // Keep templates
+    try {
+      const dbScenarios = await getScenarios(orgId)
+      if (dbScenarios.length > 0) {
+        const dbMapped: Scenario[] = dbScenarios.map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description ?? "",
+          type: s.is_base ? "base" as const : "custom" as const,
+          createdAt: s.created_at,
+          modifiers: s.growth_rate
+            ? [{ id: `m-${s.id}`, target: "receita" as const, operation: "multiply" as const, value: 1 + s.growth_rate / 100, label: `Receita ${s.growth_rate > 0 ? "+" : ""}${s.growth_rate}%` }]
+            : [],
+        }))
+        const templateIds = new Set(SCENARIO_TEMPLATES.map((t) => t.id))
+        const merged = [...SCENARIO_TEMPLATES, ...dbMapped.filter((s) => !templateIds.has(s.id))]
+        setScenarios(merged)
       }
-    })()
+    } catch {
+      // Keep templates
+    }
   }, [orgId])
+
+  useEffect(() => { loadScenarios() }, [loadScenarios])
+
+  // Realtime sync
+  const realtimeTables = useMemo(() => ["scenarios"], [])
+  useRealtimeSync(orgId, realtimeTables, loadScenarios)
 
   const selectedScenarios = scenarios.filter((s) => selectedIds.includes(s.id))
 
