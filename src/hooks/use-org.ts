@@ -13,9 +13,6 @@ interface OrgContext {
 
 let cachedContext: OrgContext | null = null
 
-// Ensures org consolidation runs once per page load (not on every re-render)
-let orgConsolidated = false
-
 // Listeners for force refresh (used by forceRefreshOrg)
 const refreshListeners = new Set<() => void>()
 let refreshCounter = 0
@@ -55,40 +52,42 @@ export function useOrg(): OrgContext {
           return
         }
 
-        // Always ensure user is in the canonical org (consolidates orgs on every page load)
-        if (!orgConsolidated) {
-          try {
-            await fetch("/api/auth/setup", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                userId: user.id,
-                fullName: user.user_metadata?.full_name ?? "",
-                email: user.email,
-              }),
-            })
-            orgConsolidated = true
-          } catch {
-            // Non-blocking
-          }
+        // Use /api/auth/setup (admin client, bypasses RLS) to get org context
+        // This also runs org consolidation
+        const setupRes = await fetch("/api/auth/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: user.id,
+            fullName: user.user_metadata?.full_name ?? "",
+            email: user.email,
+          }),
+        })
+
+        let orgId: string | null = null
+        let fullName: string | null = user.user_metadata?.full_name ?? null
+        let role = "viewer"
+
+        if (setupRes.ok) {
+          const data = await setupRes.json()
+          orgId = data.orgId ?? null
+          fullName = data.fullName ?? fullName
+          role = data.role ?? "viewer"
+        } else {
+          console.error("[useOrg] /api/auth/setup failed:", setupRes.status)
         }
 
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("organization_id, full_name, role")
-          .eq("id", user.id)
-          .single()
-
         const result: OrgContext = {
-          orgId: profile?.organization_id ?? null,
+          orgId,
           userId: user.id,
-          fullName: profile?.full_name ?? null,
-          role: (profile?.role as string) ?? "viewer",
+          fullName,
+          role,
           loading: false,
         }
         cachedContext = result
         if (!cancelled) setCtx(result)
-      } catch {
+      } catch (err) {
+        console.error("[useOrg] Error:", err)
         const result = { orgId: null, userId: null, fullName: null, role: "viewer" as const, loading: false }
         cachedContext = result
         if (!cancelled) setCtx(result)
@@ -107,25 +106,35 @@ export function useOrg(): OrgContext {
     const listener = () => {
       cachedContext = null
       refreshCounter++
-      // Re-fetch from DB
+
       const supabase = createClient()
       supabase.auth.getUser().then(({ data: { user } }) => {
         if (!user) return
-        supabase
-          .from("profiles")
-          .select("organization_id, full_name, role")
-          .eq("id", user.id)
-          .single()
-          .then(({ data: profile }) => {
+
+        fetch("/api/auth/setup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: user.id,
+            fullName: user.user_metadata?.full_name ?? "",
+            email: user.email,
+          }),
+        })
+          .then((res) => res.ok ? res.json() : null)
+          .then((data) => {
+            if (!data) return
             const result: OrgContext = {
-              orgId: profile?.organization_id ?? null,
+              orgId: data.orgId ?? null,
               userId: user.id,
-              fullName: profile?.full_name ?? null,
-              role: (profile?.role as string) ?? "viewer",
+              fullName: data.fullName ?? user.user_metadata?.full_name ?? null,
+              role: data.role ?? "viewer",
               loading: false,
             }
             cachedContext = result
             setCtx(result)
+          })
+          .catch(() => {
+            // fallback
           })
       })
     }
@@ -144,7 +153,6 @@ export function invalidateOrgCache() {
 /** Force all useOrg hooks to re-fetch from DB (call after joining/leaving org) */
 export function forceRefreshOrg() {
   cachedContext = null
-  orgConsolidated = false
   for (const listener of refreshListeners) {
     listener()
   }
