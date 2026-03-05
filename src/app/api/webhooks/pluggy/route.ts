@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import { after } from "next/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { pluggyProvider, classifyTransactions, flagDuplicates } from "@/lib/open-finance"
 import { createHmac } from "crypto"
+import { detectAnomalies } from "@/lib/automation/anomaly-detector"
+import { sendCFONotification } from "@/lib/email/resend-client"
+import { buildCriticalAlertEmail } from "@/lib/email/templates"
 
 type PluggyEvent =
   | "item/created"
@@ -76,14 +80,32 @@ export async function POST(request: NextRequest) {
             .single()
 
           if (bankAccount) {
+            const alertTitle = `Erro na conexao: ${bankAccount.bank_name}`
+            const alertMessage =
+              payload.error?.message ??
+              "A conexao bancaria encontrou um erro. Reconecte para continuar sincronizando."
+
             await admin.from("alerts").insert({
               organization_id: bankAccount.organization_id,
               type: "anomaly",
-              severity: "warning",
-              title: `Erro na conexao: ${bankAccount.bank_name}`,
-              message:
-                payload.error?.message ??
-                "A conexao bancaria encontrou um erro. Reconecte para continuar sincronizando.",
+              severity: "critical",
+              title: alertTitle,
+              message: alertMessage,
+            })
+
+            // Send critical email immediately
+            after(async () => {
+              try {
+                const html = buildCriticalAlertEmail({
+                  title: alertTitle,
+                  message: alertMessage,
+                  severity: "critical",
+                  data: { bank: bankAccount.bank_name, error: payload.error },
+                })
+                await sendCFONotification(`[CRITICO] ${alertTitle}`, html)
+              } catch (err) {
+                console.error("Alert email error:", err)
+              }
             })
           }
         }
@@ -149,6 +171,26 @@ export async function POST(request: NextRequest) {
             console.log(
               `Auto-synced ${txRecords.length} transactions for org ${orgId}`
             )
+
+            // Post-sync: anomaly detection + critical alert emails (non-blocking)
+            after(async () => {
+              try {
+                const currentMonth = new Date().toISOString().slice(0, 7)
+                const anomalies = await detectAnomalies(orgId, currentMonth)
+                const criticals = anomalies.filter((a) => a.severity === "critical")
+                for (const anomaly of criticals) {
+                  const html = buildCriticalAlertEmail(anomaly)
+                  await sendCFONotification(`[CRITICO] ${anomaly.title}`, html)
+                }
+                if (anomalies.length > 0) {
+                  console.log(
+                    `Post-sync: ${anomalies.length} anomalies detected (${criticals.length} critical) for org ${orgId}`
+                  )
+                }
+              } catch (err) {
+                console.error("Post-sync automation error:", err)
+              }
+            })
           }
         }
         break
