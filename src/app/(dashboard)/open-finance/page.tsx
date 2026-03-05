@@ -32,7 +32,10 @@ export default function OpenFinancePage() {
 
   // Load bank accounts + realized transactions from DB
   const loadOpenFinanceData = useCallback(async () => {
-    if (!orgId) return
+    if (!orgId) {
+      setLoading(false)
+      return
+    }
     try {
       setLoading(true)
       const [dbAccounts, dbTxs] = await Promise.all([
@@ -82,8 +85,8 @@ export default function OpenFinancePage() {
         setTransactions([])
         setReconciliation([])
       }
-    } catch {
-      // keep empty state
+    } catch (err) {
+      console.error("[open-finance] Error loading data:", err)
     } finally {
       setLoading(false)
     }
